@@ -107,30 +107,38 @@ export class StabilityTracker {
     const stableChanged = !vvEquals(stable, this.stableVV);
     this.stableVV = stable;
 
-    let collect: Collect | null = null;
-    if (this.candidate) {
-      for (const m of live) this.recordCandidate(m);
-      const { S, C } = this.candidate;
-      if (live.every((m) => C.has(m.replica))) {
-        const requires: VersionVector = {};
-        for (const r of new Set([...Object.keys(authored), ...C.keys()])) {
-          const member = this.members.get(r);
-          // Live members: their own seq when they saw S. Others can no longer author ops,
-          // so everything of theirs the relay stored must be delivered first.
-          const seq = member && !member.evicted && C.has(r) ? C.get(r)! : vvGet(authored, r);
-          if (seq > 0) requires[r] = seq;
-        }
-        if (vvDominates(stable, requires)) {
-          collect = this.published = { vv: S, requires };
-          this.candidate = null;
-        }
-      }
-    }
+    let collect = this.tryComplete(live, authored, stable);
     if (!this.candidate && live.length > 0 && !vvDominates(this.published?.vv ?? {}, stable)) {
       this.candidate = { S: stable, C: new Map() };
       for (const m of live) this.recordCandidate(m);
+      // If nobody wrote anything since seeing S, round 2 is already satisfied. Completing now
+      // matters: otherwise the round would wait for the next message, which may be far off.
+      collect = this.tryComplete(live, authored, stable) ?? collect;
     }
     return { stable, stableChanged, collect, evicted };
+  }
+
+  /** Publish the open round if every live member saw S and everyone has everything in C. */
+  private tryComplete(
+    live: readonly MemberRecord[],
+    authored: VersionVector,
+    stable: VersionVector,
+  ): Collect | null {
+    if (!this.candidate) return null;
+    for (const m of live) this.recordCandidate(m);
+    const { S, C } = this.candidate;
+    if (!live.every((m) => C.has(m.replica))) return null;
+    const requires: VersionVector = {};
+    for (const r of new Set([...Object.keys(authored), ...C.keys()])) {
+      const member = this.members.get(r);
+      // Live members: their own seq when they saw S. Others can no longer author ops,
+      // so everything of theirs the relay stored must be delivered first.
+      const seq = member && !member.evicted && C.has(r) ? C.get(r)! : vvGet(authored, r);
+      if (seq > 0) requires[r] = seq;
+    }
+    if (!vvDominates(stable, requires)) return null;
+    this.candidate = null;
+    return (this.published = { vv: S, requires });
   }
 
   private recordCandidate(m: MemberRecord): void {

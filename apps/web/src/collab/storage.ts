@@ -31,6 +31,8 @@ export interface ClaimedReplica {
   snapshot: DocSnapshot | null;
   save(snapshot: DocSnapshot): Promise<void>;
   release(): void;
+  /** Delete this replica's stored state and release it (after rejoining under a new id). */
+  forget(): Promise<void>;
 }
 
 let dbPromise: Promise<IDBPDatabase<Schema>> | undefined;
@@ -89,7 +91,8 @@ function rememberTabReplica(docId: string, replica: ReplicaId): void {
   }
 }
 
-export async function claimReplica(docId: string): Promise<ClaimedReplica> {
+/** `fresh`: skip stored replicas and start a new one (rejoining after eviction). */
+export async function claimReplica(docId: string, { fresh = false } = {}): Promise<ClaimedReplica> {
   const store = await db();
   const records = (await store.getAllFromIndex('replicas', 'byDoc', docId)).sort(
     (a, b) => b.updatedAt - a.updatedAt,
@@ -100,9 +103,11 @@ export async function claimReplica(docId: string): Promise<ClaimedReplica> {
   let release: () => void = () => {};
 
   const lockName = (r: ReplicaId) => `collabpad:${docId}:${r}`;
-  const previous = tabReplica(docId);
+  const previous = fresh ? null : tabReplica(docId);
 
-  if (navigator.locks) {
+  if (fresh) {
+    // fall through to a new replica
+  } else if (navigator.locks) {
     // This tab's own replica first, waiting out a reload. It may have no IndexedDB record yet
     // (its first save was still debounced) but still have ops in the teardown journal.
     if (previous) {
@@ -149,5 +154,9 @@ export async function claimReplica(docId: string): Promise<ClaimedReplica> {
       });
     },
     release,
+    forget: async () => {
+      await store.delete('replicas', `${docId}/${id}`);
+      release();
+    },
   };
 }

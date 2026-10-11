@@ -143,6 +143,8 @@ S→C  STABLE       {stableVV}                        // min over all ack vector
 
 ## 6. Tombstone removal: the safety condition (DOC-2)
 
+> **Update (implementation):** the condition below turned out to be incomplete. Removing a tombstone can also change where a later concurrent insert lands. The implemented rule adds a two-round protocol and an RGA neighbour condition. See [`docs/TOMBSTONES.md`](../docs/TOMBSTONES.md).
+
 **Why tombstones exist:** a remote insert may name a deleted character as its `origin`. If that character were gone, the insert could not be placed deterministically.
 
 **When a tombstone for element `e` (deleted by op `d`) can be removed:**

@@ -10,6 +10,8 @@ export interface RelayConfig {
   readonly replicaLeaseMs: number;
   readonly corsOrigin: string | boolean;
   readonly logLevel: string;
+  /** Clock override (tests). */
+  readonly now?: () => number;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): RelayConfig {

@@ -1,6 +1,6 @@
 import type { Status, SyncClient } from '@collabpad/client';
 import type { Presence } from '@collabpad/protocol';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { openSession } from '../collab/session';
 import { Avatars } from '../components/Avatars';
 import { DebugPanel } from '../components/DebugPanel';
@@ -19,8 +19,6 @@ export function DocPage({ docId }: { docId: string }) {
   const [title, setTitle] = useState(
     () => listRecent().find((d) => d.id === docId)?.title ?? 'Untitled',
   );
-  const [status, setStatus] = useState<Status>('connecting');
-  const [pending, setPending] = useState(0);
   const [peers, setPeers] = useState<Presence[]>([]);
   const [debug, setDebug] = useState(() => new URLSearchParams(location.search).has('debug'));
   const [copied, setCopied] = useState(false);
@@ -43,12 +41,8 @@ export function DocPage({ docId }: { docId: string }) {
       const session = await openSession(docId);
       if (cancelled) return void session.close();
       close = session.close;
-      const { client } = session;
-      client.on('status', setStatus);
-      client.on('pending', setPending);
-      client.on('presence', () => setPeers([...client.peerPresence.values()]));
-      client.on('fatal', () => setLoad({ state: 'missing' }));
-      setLoad({ state: 'ready', client });
+      session.onReplace((client) => setLoad({ state: 'ready', client }));
+      setLoad({ state: 'ready', client: session.client });
     })();
 
     return () => {
@@ -56,6 +50,28 @@ export function DocPage({ docId }: { docId: string }) {
       void close?.();
     };
   }, [docId]);
+
+  // Read live from whichever client is current (it is replaced after a rejoin).
+  const client = load.state === 'ready' ? load.client : null;
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (!client) return () => {};
+      const off = [client.on('status', onChange), client.on('pending', onChange)];
+      return () => off.forEach((fn) => fn());
+    },
+    [client],
+  );
+  const status: Status = useSyncExternalStore(subscribe, () => client?.status ?? 'connecting');
+  const pending = useSyncExternalStore(subscribe, () => client?.pending ?? 0);
+
+  useEffect(() => {
+    if (!client) return;
+    const off = [
+      client.on('presence', () => setPeers([...client.peerPresence.values()])),
+      client.on('fatal', () => setLoad({ state: 'missing' })),
+    ];
+    return () => off.forEach((fn) => fn());
+  }, [client]);
 
   useEffect(() => {
     document.title = `${title} · CollabPad`;

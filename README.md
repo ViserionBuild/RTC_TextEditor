@@ -3,7 +3,7 @@
 A Google-Docs-style notepad where several people edit the same document at once, online or
 offline, built on a **from-scratch RGA sequence CRDT** (no Yjs / Automerge).
 
-> Status: Phase 4 of 7 — CRDT core, convergence simulator, relay server and web editor done. See [`PRD/`](PRD) for the requirements and plan.
+> Status: Phase 5 of 7 — CRDT core, convergence simulator, relay, web editor and tombstone GC done. See [`PRD/`](PRD) for the requirements and plan.
 
 ## Packages
 
@@ -48,6 +48,17 @@ client ↔ relay   presence / presence-left   cursors, not persisted
 ```
 
 REST: `POST /api/docs`, `GET|PATCH /api/docs/:id`, `GET /api/docs/:id/stats`, `GET /healthz`.
+
+## Tombstone garbage collection
+
+Deleted characters stay as tombstones until it is provably safe to drop them. "Everyone has seen
+the delete" is not enough: ops still in flight may reference the tombstone, and removing it can
+change where a later concurrent insert lands. The relay runs a two-round stability protocol, and
+each replica only purges tombstone runs whose right neighbour is also old. Replicas evicted after
+a long absence rejoin under a new id and replay their unsent edits. New clients bootstrap from a
+compact collected snapshot instead of the full history.
+
+Full argument, counterexamples and test map: [`docs/TOMBSTONES.md`](docs/TOMBSTONES.md).
 
 ## Offline persistence in the browser
 

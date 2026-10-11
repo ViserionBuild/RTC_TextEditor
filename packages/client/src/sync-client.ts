@@ -1,8 +1,9 @@
 import {
+  Doc,
+  rebaseUnacked,
   vvGet,
   vvMerge,
   type Delta,
-  type Doc,
   type Op,
   type ReplicaId,
   type VersionVector,
@@ -27,6 +28,8 @@ export interface SyncClientOptions {
   readonly doc: Doc;
   /** Periodic anti-entropy (also reports our vector for tombstone stability). */
   readonly syncIntervalMs?: number;
+  /** After applying remote ops, report what we have this long after the burst ends. */
+  readonly seenDelayMs?: number;
   readonly backoffInitialMs?: number;
   readonly backoffMaxMs?: number;
   readonly WebSocket?: typeof WebSocket;
@@ -43,6 +46,10 @@ type Events = {
   pending: [number];
   presence: [ReplicaId, Presence | null];
   stable: [VersionVector];
+  /** Tombstones removed after the relay declared them collectable. */
+  collected: [number];
+  /** The relay requires this replica to rejoin under a new id (see rejoinAs). */
+  rejoin: [];
   fatal: [string];
 };
 
@@ -63,6 +70,7 @@ export class SyncClient extends Emitter<Events> {
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private syncTimer: ReturnType<typeof setInterval> | undefined;
+  private seenTimer: ReturnType<typeof setTimeout> | undefined;
   private currentStatus: Status = 'offline';
 
   constructor(private readonly opts: SyncClientOptions) {
@@ -141,7 +149,22 @@ export class SyncClient extends Emitter<Events> {
       case 'ops': {
         const deltas: Delta[] = [];
         const applied = this.doc.applyRemote(msg.ops, (d) => deltas.push(d));
-        if (applied.length) this.emit('remote', applied, deltas);
+        if (applied.length) {
+          this.emit('remote', applied, deltas);
+          this.scheduleSeen();
+        }
+        break;
+      }
+      case 'snapshot': {
+        // Only sent to a replica that has nothing yet.
+        if (Object.keys(this.doc.versionVector()).length > 0) break;
+        const delta = this.doc.adoptState(msg.state);
+        this.emit('remote', [], delta ? [delta] : []);
+        break;
+      }
+      case 'collect': {
+        const removed = this.doc.collect(msg.collect);
+        if (removed) this.emit('collected', removed);
         break;
       }
       case 'sync': {
@@ -178,6 +201,11 @@ export class SyncClient extends Emitter<Events> {
   private closed(ws: WebSocket, code: number, reason: string): void {
     if (ws !== this.ws) return;
     this.teardown();
+    if (code === CloseCode.Rejoin) {
+      this.wanted = false;
+      this.emit('rejoin');
+      return;
+    }
     if (code === CloseCode.UnknownDoc || code === CloseCode.Replaced) {
       this.wanted = false;
       this.emit('fatal', reason || `closed with ${code}`);
@@ -191,8 +219,34 @@ export class SyncClient extends Emitter<Events> {
     this.reconnectTimer = setTimeout(() => this.connect(), base * jitter);
   }
 
+  /**
+   * Continue as a new replica after a rejoin: bootstrap from the relay, then replay this
+   * replica's unacknowledged edits as fresh ops. Resolves once the edits are submitted.
+   */
+  async rejoinAs(replica: ReplicaId): Promise<SyncClient> {
+    this.disconnect();
+    const next = new SyncClient({ ...this.opts, doc: new Doc(replica) });
+    const online = new Promise<void>((resolve) => {
+      const off = next.on('status', (s) => s === 'online' && (off(), resolve()));
+    });
+    next.connect();
+    await online;
+    next.submit(rebaseUnacked(this.doc, this.serverVV, next.doc));
+    return next;
+  }
+
+  private scheduleSeen(): void {
+    if (this.seenTimer !== undefined) return;
+    this.seenTimer = setTimeout(() => {
+      this.seenTimer = undefined;
+      this.send({ kind: 'seen', vv: this.doc.versionVector() });
+    }, this.opts.seenDelayMs ?? 1000);
+  }
+
   private teardown(): void {
     clearInterval(this.syncTimer);
+    clearTimeout(this.seenTimer);
+    this.seenTimer = undefined;
     this.ws = null;
     for (const replica of this.peers.keys()) this.emit('presence', replica, null);
     this.peers.clear();

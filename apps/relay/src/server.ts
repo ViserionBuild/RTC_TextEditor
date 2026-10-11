@@ -28,7 +28,7 @@ export async function buildRelay(config: RelayConfig): Promise<Relay> {
   const roomFor = (docId: string): Room => {
     let room = rooms.get(docId);
     if (!room) {
-      room = new Room(docId, store, { replicaLeaseMs: config.replicaLeaseMs });
+      room = new Room(docId, store, { replicaLeaseMs: config.replicaLeaseMs, now: config.now });
       rooms.set(docId, room);
     }
     return room;
@@ -36,7 +36,10 @@ export async function buildRelay(config: RelayConfig): Promise<Relay> {
 
   await app.register(cors, { origin: config.corsOrigin });
   await app.register(websocket, { options: { maxPayload: config.maxMessageBytes } });
-  app.addHook('onClose', () => store.close());
+  app.addHook('onClose', () => {
+    for (const room of rooms.values()) room.flush();
+    store.close();
+  });
 
   // ---------- REST ----------
 
@@ -114,6 +117,8 @@ export async function buildRelay(config: RelayConfig): Promise<Relay> {
           return room.sync(peer, msg.vv);
         case 'ops':
           return room.receiveOps(peer, msg.ops);
+        case 'seen':
+          return room.seen(peer, msg.vv);
         case 'presence':
           return room.setPresence(peer, msg.presence);
       }
@@ -121,7 +126,11 @@ export async function buildRelay(config: RelayConfig): Promise<Relay> {
 
     socket.on('close', () => {
       if (peer) room.leave(peer);
-      if (room.size === 0 && rooms.get(docId) === room) rooms.delete(docId);
+      if (room.size === 0 && rooms.get(docId) === room) {
+        // During shutdown sockets close after the store; onClose already flushed every room.
+        if (store.isOpen) room.flush();
+        rooms.delete(docId);
+      }
     });
   });
 

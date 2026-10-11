@@ -59,6 +59,7 @@ export function client(
     backoffInitialMs: 20,
     backoffMaxMs: 100,
     syncIntervalMs: 200,
+    seenDelayMs: 20,
   });
   c.connect();
   return c;

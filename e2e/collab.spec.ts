@@ -114,3 +114,33 @@ test('two tabs in the same browser get separate replicas', async ({ page: first 
   await typeAt(second, 3, ' two');
   await expectConverged([first, second], 'one two');
 });
+
+test('deleted text is garbage-collected in every browser', async ({ browser, page: alice }) => {
+  const url = await createAs(alice);
+  const bob = await openAs(browser, url);
+  const carol = await openAs(browser, url);
+  const everyone = [alice, bob, carol];
+
+  await typeAt(alice, 0, 'keep this, drop that');
+  await expectConverged(everyone, 'keep this, drop that');
+  await bob.locator('.cm-content').click();
+  await bob.keyboard.press('Control+End');
+  for (let i = 0; i < 10; i++) await bob.keyboard.press('Backspace');
+  await expectConverged(everyone, 'keep this,');
+
+  const tombstones = (p: Page) =>
+    p.evaluate(
+      () =>
+        (
+          window.__collabpad as unknown as { client: { doc: { stats(): { tombstones: number } } } }
+        ).client.doc.stats().tombstones,
+    );
+  // Two acknowledgement rounds (each client reports ~1 s after receiving ops).
+  await expect
+    .poll(async () => Promise.all(everyone.map(tombstones)), { timeout: 15_000 })
+    .toEqual([0, 0, 0]);
+
+  // Editing keeps working on the collected state.
+  await typeAt(carol, 4, '!');
+  await expectConverged(everyone, 'keep! this,');
+});

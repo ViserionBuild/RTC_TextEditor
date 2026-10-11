@@ -1,20 +1,21 @@
 import {
+  Doc,
   OpLog,
-  vvEquals,
+  StabilityTracker,
   vvGet,
-  vvMerge,
-  vvMin,
+  type Collect,
   type Op,
   type ReplicaId,
   type VersionVector,
 } from '@collabpad/crdt';
 import {
   ByteCounter,
+  CloseCode,
   type ErrorCode,
   type Presence,
   type ServerMessage,
 } from '@collabpad/protocol';
-import type { ReplicaAck, Store } from './store';
+import type { Store } from './store';
 
 /** One client connection, as the room sees it. */
 export interface Peer {
@@ -24,12 +25,24 @@ export interface Peer {
   presence?: Presence;
 }
 
+export interface RoomOptions {
+  replicaLeaseMs: number;
+  now?: () => number;
+  /** Persist the materialized snapshot after this many accepted ops (also on GC and unload). */
+  snapshotEvery?: number;
+}
+
 export interface RoomStats {
   docId: string;
   connections: number;
   ops: number;
   vv: VersionVector;
   stable: VersionVector;
+  collect: Collect | null;
+  members: number;
+  evicted: number;
+  visible: number;
+  tombstones: number;
   bytesIn: number;
   bytesOut: number;
   messagesIn: number;
@@ -37,44 +50,71 @@ export interface RoomStats {
 }
 
 /**
- * All live state for one document: the op log (loaded from the store), connected peers,
- * presence, and the per-replica vectors used to compute causal stability.
+ * All live state for one document:
+ *  - the op log (complete history, loaded from the store) for anti-entropy;
+ *  - a materialized, garbage-collected Doc used to bootstrap new clients with a snapshot;
+ *  - connected peers and their presence;
+ *  - a StabilityTracker that decides when tombstones may be collected.
  *
- * The relay never interprets ops. It persists them, then forwards them.
+ * Ops are persisted before they are forwarded.
  */
 export class Room {
   readonly bytes = new ByteCounter();
   private readonly log = new OpLog();
+  private readonly doc: Doc;
+  private readonly tracker: StabilityTracker;
   private readonly peers = new Map<ReplicaId, Peer>();
-  private readonly acks = new Map<ReplicaId, ReplicaAck>();
-  private stable: VersionVector = {};
+  private sinceSnapshot = 0;
 
   constructor(
     readonly docId: string,
     private readonly store: Store,
-    private readonly opts: { replicaLeaseMs: number; now?: () => number },
+    private readonly opts: RoomOptions,
   ) {
     this.log.add(store.loadOps(docId));
-    for (const ack of store.loadAcks(docId)) this.acks.set(ack.replica, ack);
-    this.stable = this.computeStable();
+    const snapshot = store.loadSnapshot(docId);
+    this.doc = snapshot ? Doc.load('#relay', snapshot) : new Doc('#relay');
+    this.doc.applyRemote(this.log.since(this.doc.versionVector()));
+
+    const collect = store.loadCollect(docId);
+    this.tracker = new StabilityTracker(opts.replicaLeaseMs, {
+      members: store.loadMembers(docId),
+      collect,
+    });
+    if (collect) this.doc.collect(collect);
   }
 
   get size(): number {
     return this.peers.size;
   }
 
-  /** A peer finished its handshake. A second connection for the same replica replaces the first. */
+  /**
+   * A peer finished its handshake. Evicted replicas, and strangers arriving with offline edits
+   * after GC began, are told to rejoin under a new id. A second connection for the same replica
+   * replaces the first.
+   */
   join(peer: Peer, vv: VersionVector): void {
+    if (this.tracker.admit(peer.replica, vv) === 'rejoin') {
+      peer.close(CloseCode.Rejoin, 'rejoin required');
+      return;
+    }
     const existing = this.peers.get(peer.replica);
     if (existing) {
       this.peers.delete(peer.replica);
-      existing.close(4409, 'replaced by a newer connection');
+      existing.close(CloseCode.Replaced, 'replaced by a newer connection');
     }
     this.peers.set(peer.replica, peer);
     for (const other of this.peers.values()) {
       if (other !== peer && other.presence) {
         peer.send({ kind: 'presence', replica: other.replica, presence: other.presence });
       }
+    }
+    // A client with nothing gets the compact, collected state instead of the full history.
+    if (Object.keys(vv).length === 0 && this.log.size > 0) {
+      const state = { ...this.doc.snapshot(), log: [], pending: [] };
+      peer.send({ kind: 'snapshot', state });
+      this.sync(peer, state.vv);
+      return;
     }
     this.sync(peer, vv);
   }
@@ -84,8 +124,15 @@ export class Room {
     const missing = this.log.since(vv);
     if (missing.length) peer.send({ kind: 'ops', ops: missing });
     peer.send({ kind: 'sync', vv: this.log.versionVector() });
-    peer.send({ kind: 'stable', vv: this.stable });
-    this.recordAck(peer.replica, vv);
+    peer.send({ kind: 'stable', vv: this.tracker.stable });
+    const collect = this.tracker.collect;
+    if (collect) peer.send({ kind: 'collect', collect });
+    this.observe(peer.replica, vv);
+  }
+
+  /** The peer reports what it has integrated (no reply). */
+  seen(peer: Peer, vv: VersionVector): void {
+    this.observe(peer.replica, vv);
   }
 
   /** Persist, then forward. Peers may only submit ops they authored. */
@@ -96,17 +143,19 @@ export class Room {
     }
     const accepted = this.log.add(ops);
     if (accepted.length) {
-      // The sender has every op it authored, so its known vector advances too.
       const self = peer.replica;
-      const ack = this.ackFor(self, { [self]: vvGet(this.log.versionVector(), self) });
-      this.store.appendOps(this.docId, accepted, ack);
-      this.acks.set(self, ack);
+      // The sender has every op it authored.
+      this.tracker.observe(self, { [self]: vvGet(this.log.versionVector(), self) }, this.now());
+      this.store.appendOps(this.docId, accepted, this.recordsFor([self]));
+      this.doc.applyRemote(accepted);
       for (const other of this.peers.values()) {
         if (other !== peer) other.send({ kind: 'ops', ops: accepted });
       }
-      this.updateStable();
+      this.sinceSnapshot += accepted.length;
+      if (this.sinceSnapshot >= (this.opts.snapshotEvery ?? 1000)) this.flush();
     }
     peer.send({ kind: 'ack', vv: this.log.versionVector() });
+    if (accepted.length) this.advance([]);
   }
 
   setPresence(peer: Peer, presence: Presence): void {
@@ -125,13 +174,26 @@ export class Room {
     peer.close(closeCode, message);
   }
 
+  /** Persist the materialized state (called periodically, after GC, and when the room unloads). */
+  flush(): void {
+    this.store.saveSnapshot(this.docId, this.doc.snapshot());
+    this.sinceSnapshot = 0;
+  }
+
   stats(): RoomStats {
+    const records = this.tracker.records();
+    const doc = this.doc.stats();
     return {
       docId: this.docId,
       connections: this.peers.size,
       ops: this.log.size,
       vv: this.log.versionVector(),
-      stable: this.stable,
+      stable: this.tracker.stable,
+      collect: this.tracker.collect,
+      members: records.filter((m) => !m.evicted).length,
+      evicted: records.filter((m) => m.evicted).length,
+      visible: doc.visible,
+      tombstones: doc.tombstones,
       bytesIn: this.bytes.received,
       bytesOut: this.bytes.sent,
       messagesIn: this.bytes.messagesReceived,
@@ -141,39 +203,38 @@ export class Room {
 
   // ---------- stability ----------
 
-  private recordAck(replica: ReplicaId, vv: VersionVector): void {
-    const ack = this.ackFor(replica, vv);
-    this.acks.set(replica, ack);
-    this.store.saveAck(this.docId, ack);
-    this.updateStable();
+  private observe(replica: ReplicaId, vv: VersionVector): void {
+    this.tracker.observe(replica, vv, this.now());
+    this.advance([replica]);
   }
 
-  private ackFor(replica: ReplicaId, vv: VersionVector): ReplicaAck {
-    const prev = this.acks.get(replica)?.vv ?? {};
-    return { replica, vv: vvMerge(prev, vv), lastSeen: this.now() };
+  private advance(changed: ReplicaId[]): void {
+    const update = this.tracker.advance(
+      this.now(),
+      this.log.versionVector(),
+      new Set(this.peers.keys()),
+    );
+    this.store.saveMembers(this.docId, this.recordsFor([...changed, ...update.evicted]));
+    if (update.stableChanged) this.broadcastAll({ kind: 'stable', vv: update.stable });
+    if (update.collect) {
+      this.store.saveCollect(this.docId, update.collect);
+      this.doc.collect(update.collect);
+      this.flush();
+      this.broadcastAll({ kind: 'collect', collect: update.collect });
+    }
   }
 
-  /**
-   * Ops at or below the pointwise minimum of every live member's vector have been seen by
-   * everyone. Kept monotonic: a brand-new replica (empty vector) cannot have issued ops that
-   * reference anything it never saw, so it must not drag stability backwards. A replica that
-   * returns after its lease expired is the exception; Phase 5 makes it rejoin from a snapshot.
-   */
-  private computeStable(): VersionVector {
-    const cutoff = this.now() - this.opts.replicaLeaseMs;
-    const live = [...this.acks.values()].filter((a) => a.lastSeen >= cutoff).map((a) => a.vv);
-    return vvMerge(this.stable, vvMin(live));
-  }
-
-  private updateStable(): void {
-    const next = this.computeStable();
-    if (vvEquals(next, this.stable)) return;
-    this.stable = next;
-    for (const peer of this.peers.values()) peer.send({ kind: 'stable', vv: next });
+  private recordsFor(replicas: ReplicaId[]) {
+    const wanted = new Set(replicas);
+    return this.tracker.records().filter((m) => wanted.has(m.replica));
   }
 
   private broadcast(from: Peer, msg: ServerMessage): void {
     for (const other of this.peers.values()) if (other !== from) other.send(msg);
+  }
+
+  private broadcastAll(msg: ServerMessage): void {
+    for (const peer of this.peers.values()) peer.send(msg);
   }
 
   private now(): number {
