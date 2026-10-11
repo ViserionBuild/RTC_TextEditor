@@ -1,0 +1,25 @@
+{
+  "name": "@collabpad/relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CollabPad relay: persists and forwards CRDT ops between clients",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "demo": "tsx scripts/demo-3clients.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@collabpad/crdt": "workspace:*",
+    "@collabpad/protocol": "workspace:*",
+    "@fastify/cors": "^11.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "fastify": "^5.6.0",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@collabpad/client": "workspace:*",
+    "@types/ws": "^8.18.2"
+  }
+}

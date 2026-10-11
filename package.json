@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@9.15.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "pnpm -r build",
@@ -15,7 +15,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "fuzz": "FUZZ_RUNS=10000 vitest run packages/sim/test/fuzz.test.ts"
+    "fuzz": "FUZZ_RUNS=10000 vitest run packages/sim/test/fuzz.test.ts",
+    "demo:3clients": "pnpm --filter @collabpad/relay demo",
+    "relay": "pnpm --filter @collabpad/relay dev"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
