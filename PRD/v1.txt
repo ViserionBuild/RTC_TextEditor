@@ -1,0 +1,13 @@
+Real-Time Collaborative Text Editor 
+
+Implement a sequence CRDT such as RGA, with unique character identifiers,
+insertions, and deletion tombstones. Add a minimal editor and a relay that
+persists and forwards operations between three clients. 
+Allow offline editing and exchange missing operations after reconnection
+using per-replica sequence summaries. Apply the same operations in 
+shuffled, delayed, and duplicated orders and verify that document 
+hashes converge. Demonstrate concurrent insertion and deletion at the 
+same position, and report synchronization bytes and metadata growth; 
+state when tombstones may safely be removed. Concepts: CRDTs, 
+causality, strong eventual consistency, anti-entropy, idempotency, 
+tombstones.
