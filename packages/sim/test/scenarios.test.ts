@@ -106,3 +106,41 @@ describe('scenarios over a simulated network with a relay', () => {
     expect(() => sim.settle(5)).toThrow(/did not settle/);
   });
 });
+
+describe('tombstone garbage collection over the network', () => {
+  const gcSim = (seed: number) =>
+    new Simulation({ seed, replicas: ['alice', 'bob', 'carol'], gc: true, duplicateRate: 0.3 });
+
+  it('collects stable tombstones on every replica', () => {
+    const sim = gcSim(11);
+    sim.type('alice', 0, 'hello brave new world');
+    sim.settle();
+    sim.delete('bob', 5, 10); // " brave new"
+    sim.settle();
+    sim.type('carol', 0, '>'); // later traffic carries the acks that finish the rounds
+    sim.settle();
+    sim.assertConverged();
+    for (const r of sim.replicas) expect(sim.doc(r).stats().tombstones).toBe(0);
+    expect(sim.doc('alice').text()).toBe('>hello world');
+  });
+
+  it('an offline replica holds back GC until it returns, then catches up', () => {
+    const sim = gcSim(12);
+    sim.type('alice', 0, 'abcdef');
+    sim.settle();
+    sim.disconnect('carol');
+    sim.delete('alice', 1, 3);
+    sim.type('bob', 0, 'x');
+    sim.settle();
+    expect(sim.doc('alice').stats().tombstones).toBe(3);
+
+    sim.type('carol', 6, '!'); // carol edits offline, next to the deleted text
+    sim.reconnect('carol');
+    sim.settle();
+    sim.type('alice', 0, '>');
+    sim.settle();
+    sim.assertConverged();
+    expect(sim.doc('alice').text()).toBe('>xaef!');
+    for (const r of sim.replicas) expect(sim.doc(r).stats().tombstones).toBe(0);
+  });
+});

@@ -1,11 +1,12 @@
 import fc from 'fast-check';
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { execute, type Action, type Run } from '../src';
 
 /**
- * QA-1..QA-4: random edits on 3 replicas with random outages, latency (reordering),
+ * QA-1..QA-4 and QA-8: random edits on 3 replicas with random outages, latency (reordering),
  * duplication and loss. After everyone reconnects and anti-entropy settles, every replica and
- * the relay must agree. FUZZ_RUNS=10000 for the nightly / `pnpm fuzz` run.
+ * the relay must agree, and match a no-GC oracle (half the runs garbage-collect tombstones
+ * while this happens). FUZZ_RUNS=10000 for the nightly / `pnpm fuzz` run.
  *
  * On failure the shrunk run is printed as JSON: save it to test/regressions/<name>.json.
  */
@@ -57,16 +58,18 @@ const run: fc.Arbitrary<Run> = fc.record({
     duplicateRate: fc.constantFrom(0, 0.2, 0.5),
     dropRate: fc.constantFrom(0, 0, 0.1, 0.3),
     antiEntropyEvery: fc.constantFrom(0, 25, 100),
+    gc: fc.boolean(),
   }),
   actions: fc.array(action, { maxLength: 150, size: 'max' }),
 });
 
 describe('convergence fuzz (shuffled, delayed, duplicated, dropped, partitioned)', () => {
   it(`all replicas converge across ${RUNS} random runs`, () => {
+    let collected = 0;
     fc.assert(
       fc.property(run, (r) => {
         try {
-          execute(r);
+          collected += execute(r).collected;
         } catch (err) {
           throw new Error(`${(err as Error).message}\nregression: ${JSON.stringify(r)}`, {
             cause: err,
@@ -75,5 +78,9 @@ describe('convergence fuzz (shuffled, delayed, duplicated, dropped, partitioned)
       }),
       { numRuns: RUNS },
     );
+    expect(
+      collected,
+      'GC never removed a tombstone: the GC half of the fuzz is vacuous',
+    ).toBeGreaterThan(0);
   }, 600_000);
 });

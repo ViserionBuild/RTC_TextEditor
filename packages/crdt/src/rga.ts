@@ -4,9 +4,10 @@ import type { DeleteOp, InsertOp } from './ops';
 export interface Elem {
   readonly id: OpId;
   readonly ts: Stamp;
-  readonly origin: OpId | null;
   readonly char: string;
   deleted: boolean;
+  /** The first delete op that tombstoned this element (drives garbage collection). */
+  deletedBy: OpId | null;
 }
 
 /**
@@ -16,8 +17,15 @@ export interface Elem {
  * run-length items and a counted index.
  */
 export class Rga {
-  private readonly elems: Elem[] = [];
+  private elems: Elem[] = [];
   private readonly byId = new Map<string, Elem>();
+
+  /** Replace the whole sequence (loading a snapshot). */
+  load(elems: Elem[]): void {
+    this.elems = elems;
+    this.byId.clear();
+    for (const e of elems) this.byId.set(idKey(e.id), e);
+  }
 
   has(id: OpId): boolean {
     return this.byId.has(idKey(id));
@@ -36,7 +44,8 @@ export class Rga {
   integrateInsert(op: InsertOp): void {
     let pos = op.origin === null ? 0 : this.positionOf(op.origin) + 1;
     while (pos < this.elems.length && compareStamps(this.elems[pos]!.ts, op.ts) > 0) pos++;
-    const elem: Elem = { id: op.id, ts: op.ts, origin: op.origin, char: op.char, deleted: false };
+    // The origin is only needed to find the position; it is not stored.
+    const elem: Elem = { id: op.id, ts: op.ts, char: op.char, deleted: false, deletedBy: null };
     this.elems.splice(pos, 0, elem);
     this.byId.set(idKey(op.id), elem);
   }
@@ -45,7 +54,36 @@ export class Rga {
   integrateDelete(op: DeleteOp): void {
     const elem = this.byId.get(idKey(op.target));
     if (!elem) throw new Error(`delete target ${idKey(op.target)} not integrated`);
+    if (elem.deleted) return;
     elem.deleted = true;
+    elem.deletedBy = op.id;
+  }
+
+  /**
+   * Remove tombstones for which `collectable` holds, but only in runs whose right neighbour
+   * (the first surviving element after the run) satisfies `isOld`, or that end the document.
+   *
+   * Why the neighbour matters: an incoming insert scans right from its origin and stops at the
+   * first element with a smaller stamp. Old tombstones are such stopping points. If the
+   * element after a purged run were newer than an incoming insert, the scan would skip past
+   * where the run used to be, and land somewhere a replica that still has the run would not.
+   * With an old neighbour, the scan stops in the same place either way.
+   */
+  purge(collectable: (e: Elem) => boolean, isOld: (e: Elem) => boolean): number {
+    let neighbourOld = true; // end of document
+    const keep: Elem[] = [];
+    for (let i = this.elems.length - 1; i >= 0; i--) {
+      const e = this.elems[i]!;
+      if (neighbourOld && e.deleted && collectable(e)) {
+        this.byId.delete(idKey(e.id));
+        continue;
+      }
+      keep.push(e);
+      neighbourOld = isOld(e);
+    }
+    const removed = this.elems.length - keep.length;
+    this.elems = keep.reverse();
+    return removed;
   }
 
   /** Visible element at a visible index. */

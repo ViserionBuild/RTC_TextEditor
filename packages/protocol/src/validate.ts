@@ -37,6 +37,7 @@ export const clientMessageSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('hello'), replica: replicaId, vv: vvSchema }),
   z.object({ kind: z.literal('sync'), vv: vvSchema }),
   z.object({ kind: z.literal('ops'), ops: z.array(opSchema).min(1).max(10_000) }),
+  z.object({ kind: z.literal('seen'), vv: vvSchema }),
   z.object({ kind: z.literal('presence'), presence: presenceSchema }),
 ]);
 

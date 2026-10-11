@@ -2,16 +2,47 @@ import { LamportClock } from './clock';
 import { sha256Hex } from './hash';
 import { idEquals, idKey, type OpId, type ReplicaId } from './ids';
 import type { DeleteOp, InsertOp, Op } from './ops';
-import { Rga } from './rga';
-import { vvGet, type VersionVector } from './vv';
+import { Rga, type Elem } from './rga';
+import { vvDominates, vvGet, type VersionVector } from './vv';
 
-export interface DocSnapshot {
+/** Legacy snapshot: the full op log, replayed on load. */
+export interface DocSnapshotV1 {
   readonly version: 1;
   readonly lamport: number;
-  /** Every applied op, grouped by replica in seq order. */
   readonly log: Record<ReplicaId, Op[]>;
-  /** Received ops still waiting on a causal dependency. */
   readonly pending: Op[];
+}
+
+/**
+ * Element as stored in a snapshot: [replica, seq, lamport, char, deletedBy?].
+ * The stamp's replica is always the id's replica, so it is not repeated.
+ */
+export type ElemTuple = [ReplicaId, number, number, string, OpId?];
+
+/**
+ * State snapshot: the element sequence itself. Needed once tombstones are collected, because
+ * a pruned op log can no longer be replayed.
+ */
+export interface DocState {
+  readonly version: 2;
+  readonly lamport: number;
+  readonly vv: VersionVector;
+  readonly elements: ElemTuple[];
+  /** Ops kept for anti-entropy (everything not yet known to be stable). */
+  readonly log: Op[];
+  readonly pending: Op[];
+}
+
+export type DocSnapshot = DocSnapshotV1 | DocState;
+
+/**
+ * Permission to garbage-collect, computed by the relay (see StabilityTracker).
+ * Tombstones whose insert and delete are within `vv` may be removed by a replica that has
+ * integrated everything in `requires`.
+ */
+export interface Collect {
+  readonly vv: VersionVector;
+  readonly requires: VersionVector;
 }
 
 /** A visible-text change caused by a remote op, in the order the ops were applied. */
@@ -33,8 +64,10 @@ export class Doc {
   readonly replica: ReplicaId;
   private readonly rga = new Rga();
   private readonly clock = new LamportClock();
-  private readonly vv: VersionVector = {};
+  private vv: VersionVector = {};
+  /** Retained ops per replica, in seq order; ops at or below `logFloor` have been pruned. */
   private readonly log = new Map<ReplicaId, Op[]>();
+  private logFloor: VersionVector = {};
   private pending: Op[] = [];
 
   constructor(replica: ReplicaId) {
@@ -111,11 +144,42 @@ export class Doc {
     return { ...this.vv };
   }
 
-  /** Ops this replica has that a peer with version vector `remote` is missing. */
+  /**
+   * Ops this replica has that a peer with version vector `remote` is missing. Ops that were
+   * pruned after becoming stable are not included (every replica already has them).
+   */
   opsSince(remote: VersionVector): Op[] {
     const out: Op[] = [];
-    for (const [replica, ops] of this.log) out.push(...ops.slice(vvGet(remote, replica)));
+    for (const [replica, ops] of this.log) {
+      const skip = Math.max(0, vvGet(remote, replica) - vvGet(this.logFloor, replica));
+      out.push(...ops.slice(skip));
+    }
     return out;
+  }
+
+  // ---------- garbage collection ----------
+
+  /**
+   * Remove tombstones the relay has declared collectable, and prune stable ops from the log.
+   * Returns the number of elements removed. Does nothing if this replica has not integrated
+   * everything in `requires` (e.g. it reloaded an older state): a later round will cover it.
+   */
+  collect({ vv, requires }: Collect): number {
+    if (!vvDominates(this.vv, requires)) return 0;
+    const within = (id: OpId) => id.seq <= vvGet(vv, id.replica);
+    const removed = this.rga.purge(
+      (e) => within(e.id) && e.deletedBy !== null && within(e.deletedBy),
+      (e) => within(e.id),
+    );
+    for (const [replica, ops] of this.log) {
+      const floor = vvGet(this.logFloor, replica);
+      const upTo = Math.min(vvGet(vv, replica), vvGet(this.vv, replica));
+      if (upTo > floor) {
+        ops.splice(0, upTo - floor);
+        this.logFloor[replica] = upTo;
+      }
+    }
+    return removed;
   }
 
   // ---------- reading ----------
@@ -133,6 +197,7 @@ export class Doc {
   }
 
   stats(): { visible: number; tombstones: number; elements: number; ops: number } {
+    // `ops` counts retained (unpruned) ops.
     let ops = 0;
     for (const l of this.log.values()) ops += l.length;
     return {
@@ -146,6 +211,19 @@ export class Doc {
   /** SHA-256 of the visible text. Equal on all replicas once they have the same ops. */
   stateHash(): string {
     return sha256Hex(this.text());
+  }
+
+  /**
+   * SHA-256 of the visible elements and their ids. Equal on converged replicas even when they
+   * have collected different tombstones.
+   */
+  liveHash(): string {
+    const canonical = this.rga
+      .elements()
+      .filter((e) => !e.deleted)
+      .map((e) => `${idKey(e.id)}|${e.char}`)
+      .join('\n');
+    return sha256Hex(canonical);
   }
 
   /** SHA-256 of the full element sequence, tombstones and ids included. */
@@ -173,19 +251,91 @@ export class Doc {
     return this.rga.visibleIndexOf(anchor) + (elem.deleted ? 0 : 1);
   }
 
+  // ---------- element access (rebasing) ----------
+
+  has(id: OpId): boolean {
+    return this.rga.has(id);
+  }
+
+  isVisible(id: OpId): boolean {
+    const e = this.rga.get(id);
+    return e !== undefined && !e.deleted;
+  }
+
+  /** Document order, tombstones included. */
+  elements(): readonly Elem[] {
+    return this.rga.elements();
+  }
+
+  /** Delete one element by id if it is visible. */
+  deleteElement(id: OpId): DeleteOp[] {
+    return this.isVisible(id) ? this.deleteRange(this.rga.visibleIndexOf(id), 1) : [];
+  }
+
   // ---------- persistence ----------
 
-  snapshot(): DocSnapshot {
-    const log: Record<ReplicaId, Op[]> = {};
-    for (const [r, ops] of this.log) log[r] = [...ops];
-    return { version: 1, lamport: this.clock.value, log, pending: [...this.pending] };
+  snapshot(): DocState {
+    return {
+      version: 2,
+      lamport: this.clock.value,
+      vv: { ...this.vv },
+      elements: this.rga
+        .elements()
+        .map((e): ElemTuple =>
+          e.deletedBy
+            ? [e.id.replica, e.id.seq, e.ts.lamport, e.char, e.deletedBy]
+            : [e.id.replica, e.id.seq, e.ts.lamport, e.char],
+        ),
+      log: [...this.log.values()].flat(),
+      pending: [...this.pending],
+    };
   }
 
   static load(replica: ReplicaId, snap: DocSnapshot): Doc {
     const doc = new Doc(replica);
-    doc.applyRemote([...Object.values(snap.log).flat(), ...snap.pending]);
+    if (snap.version === 1) {
+      doc.applyRemote([...Object.values(snap.log).flat(), ...snap.pending]);
+    } else {
+      doc.adoptState(snap);
+    }
     doc.clock.observe(snap.lamport);
     return doc;
+  }
+
+  /**
+   * Replace an empty document's contents with a state snapshot (a new client bootstrapping
+   * from the relay). Returns the delta that brings an editor showing "" up to date.
+   */
+  adoptState(state: DocState): Delta | null {
+    if (Object.keys(this.vv).length > 0 || this.pending.length > 0) {
+      throw new Error('adoptState requires an empty document');
+    }
+    this.rga.load(
+      state.elements.map(([replica, seq, lamport, char, deletedBy]) => ({
+        id: { replica, seq },
+        ts: { lamport, replica },
+        char,
+        deleted: deletedBy !== undefined,
+        deletedBy: deletedBy ?? null,
+      })),
+    );
+    this.vv = { ...state.vv };
+    this.clock.observe(state.lamport);
+    // Retained ops start right after the floor; everything below it was pruned.
+    const byReplica = new Map<ReplicaId, Op[]>();
+    for (const op of state.log) {
+      let l = byReplica.get(op.id.replica);
+      if (!l) byReplica.set(op.id.replica, (l = []));
+      l.push(op);
+    }
+    for (const [replica, seqTop] of Object.entries(state.vv)) {
+      const ops = byReplica.get(replica) ?? [];
+      this.log.set(replica, ops);
+      this.logFloor[replica] = seqTop - ops.length;
+    }
+    this.applyRemote(state.pending);
+    const text = this.text();
+    return text ? { type: 'insert', index: 0, text } : null;
   }
 
   // ---------- internals ----------
