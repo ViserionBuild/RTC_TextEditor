@@ -3,7 +3,7 @@
 A Google-Docs-style notepad where several people edit the same document at once, online or
 offline, built on a **from-scratch RGA sequence CRDT** (no Yjs / Automerge).
 
-> Status: Phase 3 of 7 — CRDT core, convergence simulator and relay server done. See [`PRD/`](PRD) for the requirements and plan.
+> Status: Phase 4 of 7 — CRDT core, convergence simulator, relay server and web editor done. See [`PRD/`](PRD) for the requirements and plan.
 
 ## Packages
 
@@ -14,6 +14,7 @@ offline, built on a **from-scratch RGA sequence CRDT** (no Yjs / Automerge).
 | [`packages/protocol`](packages/protocol) | Wire messages (zod-validated), close codes, byte counters                                                                                                         |
 | [`packages/client`](packages/client)     | `SyncClient`: connects a Doc to the relay (browser + Node), reconnect with backoff, pending-op tracking, presence                                                 |
 | [`apps/relay`](apps/relay)               | Fastify + WebSocket relay; persists ops to SQLite (`node:sqlite`) before forwarding; REST API; rate limiting; stability vector                                    |
+| [`apps/web`](apps/web)                   | React + CodeMirror 6 editor: live remote cursors, status badge, offline persistence (IndexedDB + teardown journal + Web Locks), "Internals" debug panel           |
 
 ## How the CRDT works (short)
 
@@ -48,6 +49,16 @@ client ↔ relay   presence / presence-left   cursors, not persisted
 
 REST: `POST /api/docs`, `GET|PATCH /api/docs/:id`, `GET /api/docs/:id/stats`, `GET /healthz`.
 
+## Offline persistence in the browser
+
+- Each tab is its own replica. Its CRDT snapshot, including ops the relay has not acknowledged,
+  is saved to IndexedDB (debounced).
+- Browsers do not wait for async IndexedDB writes during a reload, so on `pagehide` the ops
+  since the last save are also written synchronously to a localStorage journal and replayed at
+  the next load.
+- A Web Lock per replica stops two tabs from sharing a replica id. A reloading tab remembers its
+  replica in sessionStorage and waits for the old page's lock, so unsent ops are never orphaned.
+
 ## Development
 
 ```bash
@@ -57,6 +68,8 @@ pnpm test              # unit + scenario tests + 300-run fuzz
 pnpm fuzz              # 10,000-run fuzz
 pnpm relay             # relay on :8787 (DB_PATH, PORT, CORS_ORIGIN, ...)
 pnpm demo:3clients     # three headless clients, one goes offline, all converge
+pnpm dev               # relay on :8787 + web app on http://localhost:5173
+pnpm e2e               # Playwright: real browsers, offline + reload scenarios
 pnpm coverage
 pnpm lint && pnpm typecheck
 ```

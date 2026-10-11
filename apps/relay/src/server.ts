@@ -1,7 +1,8 @@
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { CloseCode, decodeClientMessage, encode, type ServerMessage } from '@collabpad/protocol';
+import { CloseCode, encode, type ServerMessage } from '@collabpad/protocol';
+import { decodeClientMessage } from '@collabpad/protocol/validate';
 import type { RelayConfig } from './config';
 import { TokenBucket } from './rate-limit';
 import { Room, type Peer } from './room';

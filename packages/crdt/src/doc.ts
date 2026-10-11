@@ -14,6 +14,11 @@ export interface DocSnapshot {
   readonly pending: Op[];
 }
 
+/** A visible-text change caused by a remote op, in the order the ops were applied. */
+export type Delta =
+  | { readonly type: 'insert'; readonly index: number; readonly text: string }
+  | { readonly type: 'delete'; readonly index: number; readonly length: number };
+
 /** A cursor position that survives concurrent edits: "just after element X" (null = start). */
 export type Anchor = OpId | null;
 
@@ -67,8 +72,12 @@ export class Doc {
 
   // ---------- remote ops ----------
 
-  /** Apply ops from another replica. Returns the ops that were newly applied, in order. */
-  applyRemote(ops: Iterable<Op>): Op[] {
+  /**
+   * Apply ops from another replica. Returns the ops that were newly applied, in order.
+   * `onDelta` receives the visible-text effect of each one (editors use it to patch their view);
+   * deleting an already-deleted character produces no delta.
+   */
+  applyRemote(ops: Iterable<Op>, onDelta?: (delta: Delta) => void): Op[] {
     const applied: Op[] = [];
     for (const op of ops) {
       if (this.isDuplicate(op) || this.pending.some((p) => idEquals(p.id, op.id))) continue;
@@ -83,7 +92,8 @@ export class Doc {
         if (this.isDuplicate(op)) continue;
         if (this.isReady(op)) {
           this.clock.observe(op.ts.lamport);
-          this.integrate(op);
+          if (onDelta) this.integrateWithDelta(op, onDelta);
+          else this.integrate(op);
           applied.push(op);
           progressed = true;
         } else {
@@ -188,6 +198,18 @@ export class Doc {
     if (op.id.seq !== vvGet(this.vv, op.id.replica) + 1) return false;
     if (op.type === 'ins') return op.origin === null || this.rga.has(op.origin);
     return this.rga.has(op.target);
+  }
+
+  private integrateWithDelta(op: Op, onDelta: (delta: Delta) => void): void {
+    if (op.type === 'ins') {
+      this.integrate(op);
+      onDelta({ type: 'insert', index: this.rga.visibleIndexOf(op.id), text: op.char });
+      return;
+    }
+    const wasVisible = !this.rga.get(op.target)!.deleted;
+    const index = wasVisible ? this.rga.visibleIndexOf(op.target) : -1;
+    this.integrate(op);
+    if (wasVisible) onDelta({ type: 'delete', index, length: 1 });
   }
 
   private integrate(op: Op): void {

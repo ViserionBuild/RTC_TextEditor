@@ -1,6 +1,7 @@
 import {
   vvGet,
   vvMerge,
+  type Delta,
   type Doc,
   type Op,
   type ReplicaId,
@@ -34,8 +35,10 @@ export interface SyncClientOptions {
 
 type Events = {
   status: [Status];
-  /** Remote ops that were applied to the doc, in application order. */
-  remote: [Op[]];
+  /** Remote ops that were applied to the doc, and their visible-text effect, in order. */
+  remote: [Op[], Delta[]];
+  /** Ops produced by local edits (sent now if online, otherwise after reconnecting). */
+  local: [Op[]];
   /** Number of local ops not yet durably stored by the relay. */
   pending: [number];
   presence: [ReplicaId, Presence | null];
@@ -79,6 +82,11 @@ export class SyncClient extends Emitter<Events> {
     return vvGet(this.doc.versionVector(), self) - vvGet(this.serverVV, self);
   }
 
+  /** What the relay has confirmed storing. */
+  get serverVersionVector(): VersionVector {
+    return { ...this.serverVV };
+  }
+
   get peerPresence(): ReadonlyMap<ReplicaId, Presence> {
     return this.peers;
   }
@@ -117,6 +125,7 @@ export class SyncClient extends Emitter<Events> {
   submit(ops: readonly Op[]): void {
     if (ops.length === 0) return;
     this.send({ kind: 'ops', ops: [...ops] });
+    this.emit('local', [...ops]);
     this.emit('pending', this.pending);
   }
 
@@ -130,8 +139,9 @@ export class SyncClient extends Emitter<Events> {
   private receive(msg: ServerMessage): void {
     switch (msg.kind) {
       case 'ops': {
-        const applied = this.doc.applyRemote(msg.ops);
-        if (applied.length) this.emit('remote', applied);
+        const deltas: Delta[] = [];
+        const applied = this.doc.applyRemote(msg.ops, (d) => deltas.push(d));
+        if (applied.length) this.emit('remote', applied, deltas);
         break;
       }
       case 'sync': {

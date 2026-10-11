@@ -1,46 +1,23 @@
-import { z } from 'zod';
-import type { Op, VersionVector } from '@collabpad/crdt';
+import type { Op, OpId, ReplicaId, VersionVector } from '@collabpad/crdt';
 
-const replicaId = z.string().min(1).max(64);
-const seq = z.number().int().positive();
-const opId = z.object({ replica: replicaId, seq });
-const stamp = z.object({ lamport: seq, replica: replicaId });
-
-const insertOp = z.object({
-  type: z.literal('ins'),
-  id: opId,
-  ts: stamp,
-  origin: opId.nullable(),
-  char: z.string().length(1),
-});
-const deleteOp = z.object({ type: z.literal('del'), id: opId, ts: stamp, target: opId });
-
-export const opSchema = z
-  .discriminatedUnion('type', [insertOp, deleteOp])
-  .refine((op) => op.id.replica === op.ts.replica, 'op id and stamp must name the same replica');
-
-export const vvSchema = z.record(replicaId, z.number().int().nonnegative());
-
-export const presenceSchema = z.object({
-  name: z.string().min(1).max(40),
-  color: z.string().regex(/^#[0-9a-f]{6}$/i),
-  /** Cursor and selection head as CRDT anchors (null = document start). */
-  anchor: opId.nullable(),
-  head: opId.nullable(),
-});
+/** Ephemeral cursor state. Positions are CRDT anchors so they survive concurrent edits. */
+export interface Presence {
+  name: string;
+  /** #rrggbb */
+  color: string;
+  anchor: OpId | null;
+  head: OpId | null;
+}
 
 /** Client → relay. */
-export const clientMessageSchema = z.discriminatedUnion('kind', [
+export type ClientMessage =
   /** First message on a connection: who I am and what I already have. */
-  z.object({ kind: z.literal('hello'), replica: replicaId, vv: vvSchema }),
+  | { kind: 'hello'; replica: ReplicaId; vv: VersionVector }
   /** Anti-entropy: "this is what I have". Relay answers with missing ops + its own vector. */
-  z.object({ kind: z.literal('sync'), vv: vvSchema }),
+  | { kind: 'sync'; vv: VersionVector }
   /** New ops authored by this replica. */
-  z.object({ kind: z.literal('ops'), ops: z.array(opSchema).min(1).max(10_000) }),
-  z.object({ kind: z.literal('presence'), presence: presenceSchema }),
-]);
-
-export type Presence = z.infer<typeof presenceSchema>;
+  | { kind: 'ops'; ops: Op[] }
+  | { kind: 'presence'; presence: Presence };
 
 /** Relay → client. */
 export type ServerMessage =
@@ -52,11 +29,9 @@ export type ServerMessage =
   | { kind: 'ack'; vv: VersionVector }
   /** Pointwise minimum of every member replica's vector: ops at or below it are causally stable. */
   | { kind: 'stable'; vv: VersionVector }
-  | { kind: 'presence'; replica: string; presence: Presence }
-  | { kind: 'presence-left'; replica: string }
+  | { kind: 'presence'; replica: ReplicaId; presence: Presence }
+  | { kind: 'presence-left'; replica: ReplicaId }
   | { kind: 'error'; code: ErrorCode; message: string };
-
-export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
 export type ErrorCode = 'bad-message' | 'not-hello' | 'forged-op' | 'rate-limited';
 

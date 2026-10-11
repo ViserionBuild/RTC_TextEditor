@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['packages/*/test/**/*.test.ts', 'apps/*/test/**/*.test.ts'],
+    exclude: ['e2e/**', '**/node_modules/**'],
     testTimeout: 15_000,
     coverage: {
       provider: 'v8',

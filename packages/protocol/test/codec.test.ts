@@ -1,6 +1,7 @@
 import { Doc } from '@collabpad/crdt';
 import { describe, expect, it } from 'vitest';
-import { ByteCounter, decodeClientMessage, decodeServerMessage, encode } from '../src';
+import { ByteCounter, decodeServerMessage, encode } from '../src';
+import { decodeClientMessage } from '../src/validate';
 
 describe('protocol codec', () => {
   it('round-trips real ops', () => {

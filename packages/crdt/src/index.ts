@@ -1,4 +1,4 @@
-export { Doc, type Anchor, type DocSnapshot } from './doc';
+export { Doc, type Anchor, type Delta, type DocSnapshot } from './doc';
 export { LamportClock } from './clock';
 export { sha256Hex } from './hash';
 export { compareStamps, idEquals, idKey, type OpId, type ReplicaId, type Stamp } from './ids';
