@@ -1,0 +1,13 @@
+{
+  "config": { "seed": 1, "replicas": ["r0", "r1", "r2"], "duplicateRate": 0.5, "maxDelay": 30 },
+  "actions": [
+    { "t": "ins", "r": 0, "pos": 0, "text": "cat" },
+    { "t": "wait", "ticks": 200 },
+    { "t": "off", "r": 1 },
+    { "t": "del", "r": 0, "pos": 0.4, "len": 1 },
+    { "t": "ins", "r": 1, "pos": 0.6, "text": "r" },
+    { "t": "off", "r": 2 },
+    { "t": "ins", "r": 2, "pos": 0.6, "text": "u" }
+  ],
+  "expectText": "curt"
+}
