@@ -20,6 +20,18 @@ export class ByteCounter {
     this.messagesReceived++;
     return data;
   }
+
+  countSentBinary<T extends Uint8Array>(frame: T): T {
+    this.sent += frame.length;
+    this.messagesSent++;
+    return frame;
+  }
+
+  countReceivedBinary<T extends Uint8Array>(frame: T): T {
+    this.received += frame.length;
+    this.messagesReceived++;
+    return frame;
+  }
 }
 
 export const byteLength = (data: string): number => encoder.encode(data).length;

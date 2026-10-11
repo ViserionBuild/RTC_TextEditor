@@ -108,10 +108,11 @@ const neighbourTrap: Step[] = [
   deliverAll(2),
   { t: 'del', who: 2, pos: 0.5 }, // r2 deletes e
   deliverAll(0),
-  // r1 has not seen the delete: it ages its clock, then types Y right after e.
+  // r1 has not seen the delete: it ages its clock (typing at the start, so e stays a run of
+  // its own), then types Y right after e.
   ...Array.from({ length: 20 }, (): Step[] => [
-    { t: 'ins', who: 1, pos: 1, ch: 'c' },
-    { t: 'del', who: 1, pos: 0.99 },
+    { t: 'ins', who: 1, pos: 0, ch: 'c' },
+    { t: 'del', who: 1, pos: 0 },
   ]).flat(),
   { t: 'ins', who: 1, pos: 1, ch: 'c' },
   deliverAll(1),

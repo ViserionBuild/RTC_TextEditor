@@ -96,7 +96,10 @@ export async function rawSocket(url: string) {
   const closed = new Promise<{ code: number; reason: string }>((resolve) =>
     ws.addEventListener('close', (e) => resolve({ code: e.code, reason: e.reason })),
   );
-  ws.addEventListener('message', (e) => frames.push(JSON.parse(String(e.data))));
+  ws.addEventListener('message', (e) => {
+    if (typeof e.data === 'string') frames.push(JSON.parse(e.data));
+    else frames.push({ kind: 'binary-ops' });
+  });
   await new Promise<void>((resolve, reject) => {
     ws.addEventListener('open', () => resolve());
     ws.addEventListener('error', () => resolve());

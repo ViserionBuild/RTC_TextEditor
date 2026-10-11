@@ -11,8 +11,10 @@ import {
 import {
   ByteCounter,
   CloseCode,
+  decodeOpsFrame,
   decodeServerMessage,
   encode,
+  encodeOpsFrame,
   type ClientMessage,
   type Presence,
   type ServerMessage,
@@ -116,8 +118,16 @@ export class SyncClient extends Emitter<Events> {
         this.opts.syncIntervalMs ?? 30_000,
       );
     };
-    ws.onmessage = (ev) =>
-      this.receive(decodeServerMessage(this.bytes.countReceived(String(ev.data))));
+    ws.binaryType = 'arraybuffer';
+    ws.onmessage = (ev) => {
+      // Op batches arrive as compact binary frames; everything else is JSON.
+      if (typeof ev.data === 'string') {
+        this.receive(decodeServerMessage(this.bytes.countReceived(ev.data)));
+      } else {
+        const frame = this.bytes.countReceivedBinary(new Uint8Array(ev.data as ArrayBuffer));
+        this.receive({ kind: 'ops', ops: decodeOpsFrame(frame) });
+      }
+    };
     ws.onclose = (ev) => this.closed(ws, ev.code, ev.reason);
   }
 
@@ -254,7 +264,9 @@ export class SyncClient extends Emitter<Events> {
   }
 
   private send(msg: ClientMessage): void {
-    if (this.ws?.readyState === 1) this.ws.send(this.bytes.countSent(encode(msg)));
+    if (this.ws?.readyState !== 1) return;
+    if (msg.kind === 'ops') this.ws.send(this.bytes.countSentBinary(encodeOpsFrame(msg.ops)));
+    else this.ws.send(this.bytes.countSent(encode(msg)));
   }
 
   private setStatus(status: Status): void {

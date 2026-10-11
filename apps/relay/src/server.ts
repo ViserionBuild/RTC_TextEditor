@@ -1,7 +1,14 @@
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { CloseCode, encode, type ServerMessage } from '@collabpad/protocol';
+import {
+  CloseCode,
+  decodeOpsFrame,
+  encode,
+  encodeOpsFrame,
+  type ClientMessage,
+  type ServerMessage,
+} from '@collabpad/protocol';
 import { decodeClientMessage } from '@collabpad/protocol/validate';
 import type { RelayConfig } from './config';
 import { TokenBucket } from './rate-limit';
@@ -19,6 +26,13 @@ const titleSchema = {
   type: 'object',
   properties: { title: { type: 'string', minLength: 1, maxLength: 200 } },
 } as const;
+
+const toBytes = (raw: Buffer | ArrayBuffer | Buffer[]): Uint8Array =>
+  Array.isArray(raw)
+    ? new Uint8Array(Buffer.concat(raw))
+    : raw instanceof ArrayBuffer
+      ? new Uint8Array(raw)
+      : new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
 
 export async function buildRelay(config: RelayConfig): Promise<Relay> {
   const app = Fastify({ logger: { level: config.logLevel } });
@@ -83,7 +97,10 @@ export async function buildRelay(config: RelayConfig): Promise<Relay> {
     let peer: Peer | null = null;
 
     const send = (msg: ServerMessage): void => {
-      if (socket.readyState === socket.OPEN) socket.send(room.bytes.countSent(encode(msg)));
+      if (socket.readyState !== socket.OPEN) return;
+      // Op batches go out as compact binary frames; control messages stay JSON.
+      if (msg.kind === 'ops') socket.send(room.bytes.countSentBinary(encodeOpsFrame(msg.ops)));
+      else socket.send(room.bytes.countSent(encode(msg)));
     };
     const reject = (
       code: 'bad-message' | 'not-hello' | 'rate-limited',
@@ -95,13 +112,22 @@ export async function buildRelay(config: RelayConfig): Promise<Relay> {
     };
 
     socket.on('message', (raw, isBinary) => {
-      if (isBinary)
-        return reject('bad-message', 'binary frames are not supported', CloseCode.PolicyViolation);
       if (!bucket.take()) return reject('rate-limited', 'too many messages', CloseCode.RateLimited);
 
-      const decoded = decodeClientMessage(room.bytes.countReceived(raw.toString()));
-      if (!decoded.ok) return reject('bad-message', decoded.error, CloseCode.PolicyViolation);
-      const msg = decoded.msg;
+      let msg: ClientMessage;
+      if (isBinary) {
+        // Binary frames carry op batches only; the decoder treats them as untrusted input.
+        const frame = room.bytes.countReceivedBinary(toBytes(raw));
+        try {
+          msg = { kind: 'ops', ops: decodeOpsFrame(frame) };
+        } catch (err) {
+          return reject('bad-message', (err as Error).message, CloseCode.PolicyViolation);
+        }
+      } else {
+        const decoded = decodeClientMessage(room.bytes.countReceived(raw.toString()));
+        if (!decoded.ok) return reject('bad-message', decoded.error, CloseCode.PolicyViolation);
+        msg = decoded.msg;
+      }
 
       if (!peer) {
         if (msg.kind !== 'hello')

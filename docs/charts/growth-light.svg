@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" width="720" height="380" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" role="img" aria-label="Characters a replica holds while the paper is written">
+<rect width="720" height="380" rx="8" fill="#ffffff"/>
+<text x="64" y="28" font-size="16" font-weight="600" fill="#0b0b0b">Characters a replica holds while the paper is written</text>
+<line x1="64" y1="46" x2="82" y2="46" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<text x="88" y="50" font-size="12" fill="#52514e">visible text</text>
+<line x1="254" y1="46" x2="272" y2="46" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/>
+<text x="278" y="50" font-size="12" fill="#52514e">tombstones</text>
+<line x1="64" y1="328" x2="570" y2="328" stroke="#e8e7e3" stroke-width="1"/>
+<text x="56" y="332" font-size="11" text-anchor="end" fill="#52514e">0</text>
+<line x1="64" y1="275.2" x2="570" y2="275.2" stroke="#e8e7e3" stroke-width="1"/>
+<text x="56" y="279.2" font-size="11" text-anchor="end" fill="#52514e">25k</text>
+<line x1="64" y1="222.39999999999998" x2="570" y2="222.39999999999998" stroke="#e8e7e3" stroke-width="1"/>
+<text x="56" y="226.39999999999998" font-size="11" text-anchor="end" fill="#52514e">50k</text>
+<line x1="64" y1="169.6" x2="570" y2="169.6" stroke="#e8e7e3" stroke-width="1"/>
+<text x="56" y="173.6" font-size="11" text-anchor="end" fill="#52514e">75k</text>
+<line x1="64" y1="116.79999999999998" x2="570" y2="116.79999999999998" stroke="#e8e7e3" stroke-width="1"/>
+<text x="56" y="120.79999999999998" font-size="11" text-anchor="end" fill="#52514e">100k</text>
+<line x1="64" y1="64" x2="570" y2="64" stroke="#e8e7e3" stroke-width="1"/>
+<text x="56" y="68" font-size="11" text-anchor="end" fill="#52514e">125k</text>
+<text x="64" y="346" font-size="11" text-anchor="middle" fill="#52514e">0</text>
+<text x="232.66666666666666" y="346" font-size="11" text-anchor="middle" fill="#52514e">100k</text>
+<text x="401.3333333333333" y="346" font-size="11" text-anchor="middle" fill="#52514e">200k</text>
+<text x="570" y="346" font-size="11" text-anchor="middle" fill="#52514e">300k</text>
+<text x="317" y="368" font-size="12" text-anchor="middle" fill="#52514e">edits applied (automerge-paper trace)</text>
+<text transform="translate(16 196) rotate(-90)" font-size="12" text-anchor="middle" fill="#52514e">characters</text>
+<path d="M64.0 328.0 L80.9 313.3 L97.7 297.8 L114.6 287.3 L131.5 275.8 L148.3 258.7 L165.2 250.5 L182.1 241.9 L198.9 230.2 L215.8 221.5 L232.7 210.6 L249.5 196.3 L266.4 178.6 L283.3 167.9 L300.1 164.0 L317.0 162.3 L333.9 150.3 L350.7 135.1 L367.6 132.7 L384.5 124.0 L401.3 129.8 L418.2 134.4 L435.1 124.7 L451.9 118.5 L468.8 109.0 L485.7 102.8 L502.2 106.6" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="512.1588933333333" y="110.55257599999999" font-size="12" fill="#0b0b0b">visible text · 105k</text>
+<path d="M64.0 328.0 L80.9 324.8 L97.7 322.0 L114.6 316.7 L131.5 311.8 L148.3 309.8 L165.2 303.4 L182.1 297.1 L198.9 292.4 L215.8 286.2 L232.7 281.1 L249.5 277.7 L266.4 276.0 L283.3 270.8 L300.1 262.1 L317.0 252.5 L333.9 247.9 L350.7 244.9 L367.6 235.6 L384.5 229.3 L401.3 215.9 L418.2 203.0 L435.1 197.3 L451.9 189.9 L468.8 184.0 L485.7 176.6 L502.2 164.4" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="512.1588933333333" y="168.398144" font-size="12" fill="#0b0b0b">tombstones · 77k</text>
+</svg>

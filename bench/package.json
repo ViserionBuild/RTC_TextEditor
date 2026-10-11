@@ -1,0 +1,17 @@
+{
+  "name": "@collabpad/bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node --expose-gc --import tsx src/run.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "bench:fetch": "mkdir -p data && curl -fsSL -o data/automerge-paper.json.gz https://github.com/josephg/editing-traces/raw/master/sequential_traces/automerge-paper.json.gz",
+    "bench:charts": "tsx src/charts.ts"
+  },
+  "dependencies": {
+    "@collabpad/crdt": "workspace:*",
+    "@collabpad/protocol": "workspace:*",
+    "tsx": "^4.20.0"
+  }
+}

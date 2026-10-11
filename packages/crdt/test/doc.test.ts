@@ -12,7 +12,7 @@ describe('Doc local editing', () => {
     d.deleteRange(5, 6);
     expect(d.text()).toBe('hello');
     expect(d.length).toBe(5);
-    expect(d.stats()).toEqual({ visible: 5, tombstones: 7, elements: 12, ops: 19 });
+    expect(d.stats()).toMatchObject({ visible: 5, tombstones: 7, elements: 12, ops: 19 });
   });
 
   it('inserts after tombstones at the right visible index', () => {
@@ -94,5 +94,18 @@ describe('snapshot / load', () => {
     const restored = Doc.load('b', b.snapshot());
     restored.applyRemote([ops[0]!]);
     expect(restored.text()).toBe('xy');
+  });
+});
+
+describe('large documents', () => {
+  it('handles a 200k-character paste and catch-up without stack overflow', () => {
+    const a = new Doc('a');
+    a.insertAt(0, 'x'.repeat(200_000));
+    const ops = a.opsSince({});
+    expect(ops).toHaveLength(200_000);
+    const b = new Doc('b');
+    b.applyRemote(ops);
+    expect(b.length).toBe(200_000);
+    expect(a.deleteRange(0, 150_000)).toHaveLength(150_000);
   });
 });

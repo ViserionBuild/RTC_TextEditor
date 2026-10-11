@@ -44,7 +44,10 @@ export class OpLog {
   /** Ops a peer with version vector `remote` is missing. */
   since(remote: VersionVector): Op[] {
     const out: Op[] = [];
-    for (const [r, log] of this.byReplica) out.push(...log.slice(vvGet(remote, r)));
+    // A loop, not push(...log): spreading a large array overflows the call stack.
+    for (const [r, log] of this.byReplica) {
+      for (let i = vvGet(remote, r); i < log.length; i++) out.push(log[i]!);
+    }
     return out;
   }
 

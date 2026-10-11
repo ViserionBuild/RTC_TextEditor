@@ -3,7 +3,7 @@
 A Google-Docs-style notepad where several people edit the same document at once, online or
 offline, built on a **from-scratch RGA sequence CRDT** (no Yjs / Automerge).
 
-> Status: Phase 5 of 7 — CRDT core, convergence simulator, relay, web editor and tombstone GC done. See [`PRD/`](PRD) for the requirements and plan.
+> Status: Phase 6 of 7 — CRDT core, convergence simulator, relay, web editor, tombstone GC and performance work done. See [`PRD/`](PRD) for the requirements and plan.
 
 ## Packages
 
@@ -49,6 +49,14 @@ client ↔ relay   presence / presence-left   cursors, not persisted
 
 REST: `POST /api/docs`, `GET|PATCH /api/docs/:id`, `GET /api/docs/:id/stats`, `GET /healthz`.
 
+## Performance
+
+On the 259,778-edit automerge-paper trace: full replay in **1.44 s** (p50 1.2 µs per edit), **24 B**
+per live keystroke on the wire (binary, vs 168 B JSON), **110 B** to resync after 10 offline edits,
+and **1.3 MB** of memory per replica after GC. Run-length items plus a chunked index make it 7×
+faster than the per-character RGA on the full trace. Full numbers and charts:
+[`docs/REPORT.md`](docs/REPORT.md).
+
 ## Tombstone garbage collection
 
 Deleted characters stay as tombstones until it is provably safe to drop them. "Everyone has seen
@@ -81,6 +89,7 @@ pnpm relay             # relay on :8787 (DB_PATH, PORT, CORS_ORIGIN, ...)
 pnpm demo:3clients     # three headless clients, one goes offline, all converge
 pnpm dev               # relay on :8787 + web app on http://localhost:5173
 pnpm e2e               # Playwright: real browsers, offline + reload scenarios
+pnpm bench:fetch && pnpm bench   # benchmarks on the automerge-paper trace
 pnpm coverage
 pnpm lint && pnpm typecheck
 ```

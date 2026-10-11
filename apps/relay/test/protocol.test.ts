@@ -40,7 +40,7 @@ describe('relay protocol enforcement', () => {
     expect(s.frames.at(-1)).toMatchObject({ kind: 'error', code: 'forged-op' });
   });
 
-  it('rejects binary frames', async () => {
+  it('rejects malformed binary frames', async () => {
     relay = await startRelay();
     const docId = await createDoc(relay);
     const s = await rawSocket(`${relay.ws}?doc=${docId}`);

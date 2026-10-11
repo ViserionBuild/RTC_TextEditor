@@ -1,8 +1,8 @@
 import { LamportClock } from './clock';
 import { sha256Hex } from './hash';
-import { idEquals, idKey, type OpId, type ReplicaId } from './ids';
+import { idKey, type OpId, type ReplicaId } from './ids';
 import type { DeleteOp, InsertOp, Op } from './ops';
-import { Rga, type Elem } from './rga';
+import { Rga, type Elem, type ItemTuple } from './rga';
 import { vvDominates, vvGet, type VersionVector } from './vv';
 
 /** Legacy snapshot: the full op log, replayed on load. */
@@ -13,27 +13,34 @@ export interface DocSnapshotV1 {
   readonly pending: Op[];
 }
 
-/**
- * Element as stored in a snapshot: [replica, seq, lamport, char, deletedBy?].
- * The stamp's replica is always the id's replica, so it is not repeated.
- */
+/** Legacy per-character element: [replica, seq, lamport, char, deletedBy?]. */
 export type ElemTuple = [ReplicaId, number, number, string, OpId?];
 
-/**
- * State snapshot: the element sequence itself. Needed once tombstones are collected, because
- * a pruned op log can no longer be replayed.
- */
-export interface DocState {
+/** Legacy per-character state snapshot. */
+export interface DocStateV2 {
   readonly version: 2;
   readonly lamport: number;
   readonly vv: VersionVector;
   readonly elements: ElemTuple[];
+  readonly log: Op[];
+  readonly pending: Op[];
+}
+
+/**
+ * State snapshot: the run-length element sequence itself. Needed once tombstones are
+ * collected, because a pruned op log can no longer be replayed.
+ */
+export interface DocState {
+  readonly version: 3;
+  readonly lamport: number;
+  readonly vv: VersionVector;
+  readonly items: ItemTuple[];
   /** Ops kept for anti-entropy (everything not yet known to be stable). */
   readonly log: Op[];
   readonly pending: Op[];
 }
 
-export type DocSnapshot = DocSnapshotV1 | DocState;
+export type DocSnapshot = DocSnapshotV1 | DocStateV2 | DocState;
 
 /**
  * Permission to garbage-collect, computed by the relay (see StabilityTracker).
@@ -68,7 +75,10 @@ export class Doc {
   /** Retained ops per replica, in seq order; ops at or below `logFloor` have been pruned. */
   private readonly log = new Map<ReplicaId, Op[]>();
   private logFloor: VersionVector = {};
-  private pending: Op[] = [];
+  /** Received ops not yet causally ready, by op id. */
+  private readonly pending = new Map<string, Op>();
+  /** Pending ops keyed by the one dependency (op/element id) each is waiting for. */
+  private readonly waiting = new Map<string, Op[]>();
 
   constructor(replica: ReplicaId) {
     if (!replica) throw new Error('replica id must be non-empty');
@@ -80,7 +90,7 @@ export class Doc {
   /** Insert `text` at a visible index. Returns the ops to broadcast. */
   insertAt(index: number, text: string): InsertOp[] {
     this.checkIndex(index, 0);
-    let origin: OpId | null = index === 0 ? null : this.rga.visibleAt(index - 1)!.id;
+    let origin: OpId | null = index === 0 ? null : this.rga.idAtVisible(index - 1);
     const ops: InsertOp[] = [];
     for (const char of splitUnits(text)) {
       const op: InsertOp = { type: 'ins', id: this.nextId(), ts: this.nextStamp(), origin, char };
@@ -95,7 +105,7 @@ export class Doc {
   deleteRange(index: number, length: number): DeleteOp[] {
     this.checkIndex(index, length);
     const targets: OpId[] = [];
-    for (let i = 0; i < length; i++) targets.push(this.rga.visibleAt(index + i)!.id);
+    for (let i = 0; i < length; i++) targets.push(this.rga.idAtVisible(index + i));
     return targets.map((target) => {
       const op: DeleteOp = { type: 'del', id: this.nextId(), ts: this.nextStamp(), target };
       this.integrate(op);
@@ -113,27 +123,32 @@ export class Doc {
   applyRemote(ops: Iterable<Op>, onDelta?: (delta: Delta) => void): Op[] {
     const applied: Op[] = [];
     for (const op of ops) {
-      if (this.isDuplicate(op) || this.pending.some((p) => idEquals(p.id, op.id))) continue;
-      this.pending.push(op);
-    }
-    // Drain the buffer until no op makes progress: applying one op can unblock others.
-    let progressed = true;
-    while (progressed) {
-      progressed = false;
-      const still: Op[] = [];
-      for (const op of this.pending) {
-        if (this.isDuplicate(op)) continue;
-        if (this.isReady(op)) {
-          this.clock.observe(op.ts.lamport);
-          if (onDelta) this.integrateWithDelta(op, onDelta);
-          else this.integrate(op);
-          applied.push(op);
-          progressed = true;
-        } else {
-          still.push(op);
+      if (this.isDuplicate(op) || this.pending.has(idKey(op.id))) continue;
+      // Applying one op can unblock others; wake them through the waiting index instead of
+      // rescanning the buffer, so catch-up stays linear in the number of ops.
+      const ready = [op];
+      while (ready.length) {
+        const next = ready.pop()!;
+        if (this.isDuplicate(next)) continue;
+        const missing = this.missingDependency(next);
+        if (missing !== null) {
+          this.pending.set(idKey(next.id), next);
+          let list = this.waiting.get(missing);
+          if (!list) this.waiting.set(missing, (list = []));
+          list.push(next);
+          continue;
+        }
+        this.pending.delete(idKey(next.id));
+        this.clock.observe(next.ts.lamport);
+        if (onDelta) this.integrateWithDelta(next, onDelta);
+        else this.integrate(next);
+        applied.push(next);
+        const woken = this.waiting.get(idKey(next.id));
+        if (woken) {
+          this.waiting.delete(idKey(next.id));
+          for (const w of woken) ready.push(w);
         }
       }
-      this.pending = still;
     }
     return applied;
   }
@@ -152,7 +167,8 @@ export class Doc {
     const out: Op[] = [];
     for (const [replica, ops] of this.log) {
       const skip = Math.max(0, vvGet(remote, replica) - vvGet(this.logFloor, replica));
-      out.push(...ops.slice(skip));
+      // A loop, not push(...ops): spreading a large array overflows the call stack.
+      for (let i = skip; i < ops.length; i++) out.push(ops[i]!);
     }
     return out;
   }
@@ -166,11 +182,7 @@ export class Doc {
    */
   collect({ vv, requires }: Collect): number {
     if (!vvDominates(this.vv, requires)) return 0;
-    const within = (id: OpId) => id.seq <= vvGet(vv, id.replica);
-    const removed = this.rga.purge(
-      (e) => within(e.id) && e.deletedBy !== null && within(e.deletedBy),
-      (e) => within(e.id),
-    );
+    const removed = this.rga.collect(vv);
     for (const [replica, ops] of this.log) {
       const floor = vvGet(this.logFloor, replica);
       const upTo = Math.min(vvGet(vv, replica), vvGet(this.vv, replica));
@@ -193,17 +205,18 @@ export class Doc {
   }
 
   get pendingCount(): number {
-    return this.pending.length;
+    return this.pending.size;
   }
 
-  stats(): { visible: number; tombstones: number; elements: number; ops: number } {
-    // `ops` counts retained (unpruned) ops.
+  /** `ops` counts retained (unpruned) ops; `items` counts run-length runs. */
+  stats(): { visible: number; tombstones: number; elements: number; items: number; ops: number } {
     let ops = 0;
     for (const l of this.log.values()) ops += l.length;
     return {
       visible: this.rga.visibleLength,
       tombstones: this.rga.tombstoneCount,
       elements: this.rga.size,
+      items: this.rga.itemCount,
       ops,
     };
   }
@@ -240,15 +253,14 @@ export class Doc {
   /** Anchor a cursor at a visible index to the element on its left. */
   anchorAt(index: number): Anchor {
     this.checkIndex(index, 0);
-    return index === 0 ? null : this.rga.visibleAt(index - 1)!.id;
+    return index === 0 ? null : this.rga.idAtVisible(index - 1);
   }
 
   /** Current visible index of an anchored cursor. A deleted anchor collapses to its slot. */
   resolveAnchor(anchor: Anchor): number {
     if (anchor === null) return 0;
-    const elem = this.rga.get(anchor);
-    if (!elem) return 0;
-    return this.rga.visibleIndexOf(anchor) + (elem.deleted ? 0 : 1);
+    if (!this.rga.has(anchor)) return 0;
+    return this.rga.visibleIndexOf(anchor) + (this.rga.isDeleted(anchor) ? 0 : 1);
   }
 
   // ---------- element access (rebasing) ----------
@@ -258,12 +270,11 @@ export class Doc {
   }
 
   isVisible(id: OpId): boolean {
-    const e = this.rga.get(id);
-    return e !== undefined && !e.deleted;
+    return this.rga.has(id) && !this.rga.isDeleted(id);
   }
 
   /** Document order, tombstones included. */
-  elements(): readonly Elem[] {
+  elements(): Elem[] {
     return this.rga.elements();
   }
 
@@ -276,18 +287,12 @@ export class Doc {
 
   snapshot(): DocState {
     return {
-      version: 2,
+      version: 3,
       lamport: this.clock.value,
       vv: { ...this.vv },
-      elements: this.rga
-        .elements()
-        .map((e): ElemTuple =>
-          e.deletedBy
-            ? [e.id.replica, e.id.seq, e.ts.lamport, e.char, e.deletedBy]
-            : [e.id.replica, e.id.seq, e.ts.lamport, e.char],
-        ),
+      items: this.rga.exportItems(),
       log: [...this.log.values()].flat(),
-      pending: [...this.pending],
+      pending: [...this.pending.values()],
     };
   }
 
@@ -306,18 +311,18 @@ export class Doc {
    * Replace an empty document's contents with a state snapshot (a new client bootstrapping
    * from the relay). Returns the delta that brings an editor showing "" up to date.
    */
-  adoptState(state: DocState): Delta | null {
-    if (Object.keys(this.vv).length > 0 || this.pending.length > 0) {
+  adoptState(state: DocState | DocStateV2): Delta | null {
+    if (Object.keys(this.vv).length > 0 || this.pending.size > 0) {
       throw new Error('adoptState requires an empty document');
     }
     this.rga.load(
-      state.elements.map(([replica, seq, lamport, char, deletedBy]) => ({
-        id: { replica, seq },
-        ts: { lamport, replica },
-        char,
-        deleted: deletedBy !== undefined,
-        deletedBy: deletedBy ?? null,
-      })),
+      state.version === 3
+        ? state.items
+        : state.elements.map(([replica, seq, lamport, char, deletedBy]): ItemTuple =>
+            deletedBy
+              ? [replica, seq, lamport, char, { [deletedBy.replica]: deletedBy.seq }]
+              : [replica, seq, lamport, char],
+          ),
     );
     this.vv = { ...state.vv };
     this.clock.observe(state.lamport);
@@ -344,10 +349,16 @@ export class Doc {
     return op.id.seq <= vvGet(this.vv, op.id.replica);
   }
 
-  private isReady(op: Op): boolean {
-    if (op.id.seq !== vvGet(this.vv, op.id.replica) + 1) return false;
-    if (op.type === 'ins') return op.origin === null || this.rga.has(op.origin);
-    return this.rga.has(op.target);
+  /**
+   * The id this op is waiting for, or null if it can be applied now: the previous op from the
+   * same replica (seqs apply in order), then the element it inserts after or deletes.
+   */
+  private missingDependency(op: Op): string | null {
+    const have = vvGet(this.vv, op.id.replica);
+    if (op.id.seq !== have + 1) return idKey({ replica: op.id.replica, seq: op.id.seq - 1 });
+    if (op.type === 'ins')
+      return op.origin === null || this.rga.has(op.origin) ? null : idKey(op.origin);
+    return this.rga.has(op.target) ? null : idKey(op.target);
   }
 
   private integrateWithDelta(op: Op, onDelta: (delta: Delta) => void): void {
@@ -356,7 +367,7 @@ export class Doc {
       onDelta({ type: 'insert', index: this.rga.visibleIndexOf(op.id), text: op.char });
       return;
     }
-    const wasVisible = !this.rga.get(op.target)!.deleted;
+    const wasVisible = !this.rga.isDeleted(op.target);
     const index = wasVisible ? this.rga.visibleIndexOf(op.target) : -1;
     this.integrate(op);
     if (wasVisible) onDelta({ type: 'delete', index, length: 1 });

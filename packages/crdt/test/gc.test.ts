@@ -53,7 +53,8 @@ describe('Doc.collect', () => {
     deliver(a, del);
     // … while b, not having seen it, ages its clock and types Y right after e.
     const filler: Op[] = [];
-    for (let i = 0; i < 20; i++) filler.push(...b.insertAt(2, 'f'), ...b.deleteRange(2, 1));
+    // (Typed at the start, away from e, so e stays a run of its own.)
+    for (let i = 0; i < 20; i++) filler.push(...b.insertAt(0, 'f'), ...b.deleteRange(0, 1));
     const y = b.insertAt(2, 'Y');
     deliver(b, del);
 

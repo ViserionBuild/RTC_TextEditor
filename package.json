@@ -20,7 +20,10 @@
     "relay": "pnpm --filter @collabpad/relay dev",
     "web": "pnpm --filter @collabpad/web dev",
     "dev": "pnpm --parallel --filter @collabpad/relay --filter @collabpad/web dev",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "bench": "pnpm --filter @collabpad/bench bench",
+    "bench:fetch": "pnpm --filter @collabpad/bench bench:fetch",
+    "bench:charts": "pnpm --filter @collabpad/bench bench:charts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

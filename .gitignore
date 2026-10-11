@@ -9,3 +9,5 @@ coverage/
 .env
 test-results/
 playwright-report/
+bench/data/
+bench/results/

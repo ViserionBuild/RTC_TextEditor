@@ -10,10 +10,11 @@ import type { Delta, Doc, Op } from '@collabpad/crdt';
  * "delete the old range at fromB, then insert at fromB".
  */
 export function localChangesToOps(doc: Doc, changes: ChangeSet): Op[] {
-  const ops: Op[] = [];
+  let ops: Op[] = [];
   changes.iterChanges((fromA, toA, fromB, _toB, inserted) => {
-    if (toA > fromA) ops.push(...doc.deleteRange(fromB, toA - fromA));
-    if (inserted.length) ops.push(...doc.insertAt(fromB, inserted.toString()));
+    // concat, not push(...): a huge paste or delete would overflow the call stack.
+    if (toA > fromA) ops = ops.concat(doc.deleteRange(fromB, toA - fromA));
+    if (inserted.length) ops = ops.concat(doc.insertAt(fromB, inserted.toString()));
   });
   return ops;
 }

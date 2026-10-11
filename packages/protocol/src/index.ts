@@ -6,3 +6,11 @@ export {
   type Presence,
   type ServerMessage,
 } from './messages';
+export {
+  DecodeError,
+  FrameTag,
+  decodeOps,
+  decodeOpsFrame,
+  encodeOps,
+  encodeOpsFrame,
+} from './binary';
