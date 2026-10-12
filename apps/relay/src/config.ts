@@ -10,6 +10,8 @@ export interface RelayConfig {
   readonly replicaLeaseMs: number;
   readonly corsOrigin: string | boolean;
   readonly logLevel: string;
+  /** Serve the built web app from this directory (one deployable, same origin). */
+  readonly webDist?: string;
   /** Clock override (tests). */
   readonly now?: () => number;
 }
@@ -27,5 +29,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): RelayConfig
     replicaLeaseMs: Number(env.REPLICA_LEASE_MS ?? 7 * 24 * 60 * 60 * 1000),
     corsOrigin: env.CORS_ORIGIN ?? true,
     logLevel: env.LOG_LEVEL ?? 'info',
+    webDist: env.WEB_DIST,
   };
 }

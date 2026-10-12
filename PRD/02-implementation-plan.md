@@ -189,6 +189,8 @@ Estimates assume about 10–15 hrs/week. Each phase ends with something demoable
 
 ## 8. Resume bullet templates (fill in from REPORT.md)
 
+> **Done:** the final bullets with measured numbers are in [`03-resume-notes.md`](03-resume-notes.md).
+
 - Built **CollabPad**, a real-time collaborative text editor (TypeScript, React, CodeMirror, WebSockets), powered by a **from-scratch RGA sequence CRDT** with Lamport-ordered unique IDs and deletion tombstones. It supports offline editing and conflict-free merging across any number of clients.
 - Designed a **version-vector anti-entropy protocol** and an idempotent persist-then-forward relay (Node, SQLite). Reconnecting after *N* offline edits transfers only the missing ops, **X× fewer bytes** than a full-state sync.
 - Proved **strong eventual consistency** with a deterministic network simulator and property-based tests (fast-check): **10,000+ randomized runs** with shuffled, delayed and duplicated delivery, 0 divergences.

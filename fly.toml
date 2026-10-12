@@ -1,0 +1,30 @@
+# Fly.io: `fly launch --no-deploy` (pick a unique app name), then
+#   fly volumes create collabpad_data --size 1
+#   fly deploy
+# Run exactly one machine: rooms live in memory and SQLite is a local file.
+app = "collabpad"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "8787"
+  LOG_LEVEL = "info"
+
+[[mounts]]
+  source = "collabpad_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "3s"

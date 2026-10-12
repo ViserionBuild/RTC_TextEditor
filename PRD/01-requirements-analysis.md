@@ -198,9 +198,10 @@ Each metric is shown in a chart plus a sentence of interpretation in the report.
 
 ## 10. Definition of done (resume-ready)
 
-- [ ] Live demo URL + a 60-second GIF showing 3 browsers, one offline, all converging
-- [ ] README: architecture diagram, "How RGA works" section, tombstone-GC argument, metric charts
-- [ ] `docs/REPORT.md` with M-1..M-5 numbers taken from real runs
-- [ ] CI badge (green): unit + fuzz (10k seeds) + E2E
-- [ ] Clean monorepo, strict TS, ≥ 90% coverage on the CRDT package
-- [ ] 3–4 quantified resume bullets (template in the implementation plan)
+- [ ] Live demo URL (deploy configs ready: `fly.toml`, `render.yaml`; needs an account)
+- [x] Demo GIF: two browsers, one offline, both converge (`docs/demo.gif`)
+- [x] README: architecture diagram, how it works, tombstone-GC argument, metric charts
+- [x] `docs/REPORT.md` with M-1..M-5 numbers taken from real runs
+- [ ] CI badge (green): unit + fuzz (10k seeds) + E2E (workflows written; not yet run on GitHub)
+- [x] Clean monorepo, strict TS, ≥ 90% coverage on the CRDT package
+- [x] 3–4 quantified resume bullets (`03-resume-notes.md`)

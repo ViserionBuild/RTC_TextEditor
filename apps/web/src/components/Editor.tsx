@@ -29,16 +29,15 @@ export function Editor({ client, identity }: { client: SyncClient; identity: Ide
       }),
     });
     view.focus();
-    // Test/debug hook (dev builds only): lets E2E tests compare editor text with CRDT text.
-    if (import.meta.env.DEV) {
-      Object.assign(window, {
-        __collabpad: {
-          client,
-          editorText: () => view.state.doc.toString(),
-          text: () => client.doc.text(),
-        },
-      });
-    }
+    // Debug handle (also used by the E2E tests, including against production builds). It only
+    // exposes this page's own client to this page's own scripts.
+    Object.assign(window, {
+      __collabpad: {
+        client,
+        editorText: () => view.state.doc.toString(),
+        text: () => client.doc.text(),
+      },
+    });
     return () => view.destroy();
   }, [client]);
 

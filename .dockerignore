@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+coverage
+test-results
+playwright-report
+bench/data
+bench/results
+.git
+*.sqlite
+*.sqlite-*

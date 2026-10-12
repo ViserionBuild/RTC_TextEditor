@@ -144,3 +144,18 @@ test('deleted text is garbage-collected in every browser', async ({ browser, pag
   await typeAt(carol, 4, '!');
   await expectConverged(everyone, 'keep! this,');
 });
+
+test('the concurrency lab demonstrates both conflict cases', async ({ page }) => {
+  const url = await createAs(page);
+  await page.goto(`${url}?debug`);
+  for (const [button, expected] of [
+    ['Three people type at the same spot', '"Hello Carol Bob Alice!"'],
+    ['Insert next to a character someone deletes', '"crt"'],
+  ] as const) {
+    await page.getByRole('button', { name: button }).click();
+    await expect(page.getByText('✓ All replicas converged')).toBeVisible();
+    await expect(page.locator('.lab-steps li').nth(-2).locator('code').first()).toHaveText(
+      expected,
+    );
+  }
+});

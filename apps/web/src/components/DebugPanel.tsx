@@ -1,6 +1,7 @@
 import type { SyncClient } from '@collabpad/client';
 import type { Op, VersionVector } from '@collabpad/crdt';
 import { useEffect, useState } from 'react';
+import { ConcurrencyLab } from './ConcurrencyLab';
 
 interface LogLine {
   dir: 'local' | 'remote';
@@ -113,6 +114,9 @@ export function DebugPanel({ client, onClose }: { client: SyncClient; onClose: (
           ))}
         </tbody>
       </table>
+
+      <h3>Concurrency lab</h3>
+      <ConcurrencyLab />
 
       <h3>Op stream</h3>
       <ol className="oplog">

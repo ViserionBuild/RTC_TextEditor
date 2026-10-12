@@ -129,8 +129,9 @@ code {
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 3px 6px;
-  min-width: 0;
-  width: 18ch;
+  /* Shrink before wrapping the bar onto a second line. */
+  flex: 0 1 18ch;
+  min-width: 6ch;
 }
 
 .title:hover {
@@ -355,6 +356,53 @@ code {
   padding: 8px;
 }
 
+/* ---------- concurrency lab ---------- */
+
+.lab-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lab-buttons button {
+  text-align: left;
+  font-size: 13px;
+}
+
+.lab-buttons button[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+
+.lab-steps {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.lab-label {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.lab-row {
+  display: grid;
+  grid-template-columns: 5ch 1fr;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.lab-ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.lab-bad {
+  color: var(--bad);
+  font-weight: 600;
+}
+
 /* ---------- home ---------- */
 
 .home-main {
@@ -423,6 +471,14 @@ code {
 
 .center-message .logo {
   justify-content: center;
+}
+
+/* ---------- medium screens: keep the top bar on one line ---------- */
+
+@media (max-width: 900px) {
+  .hide-md {
+    display: none;
+  }
 }
 
 /* ---------- small screens ---------- */

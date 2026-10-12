@@ -111,7 +111,7 @@ export function DocPage({ docId }: { docId: string }) {
         <Avatars me={identity} peers={peers} />
         <button className="ghost" onClick={() => setDebug((d) => !d)} aria-pressed={debug}>
           {'</>'}
-          <span className="hide-sm"> Internals</span>
+          <span className="hide-md"> Internals</span>
         </button>
         <button className="primary" onClick={() => void share()}>
           {copied ? 'Link copied' : 'Share'}

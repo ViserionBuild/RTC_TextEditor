@@ -1,0 +1,15 @@
+# Render blueprint: New → Blueprint → point at this repo.
+# One instance with a persistent disk (rooms are in memory, SQLite is a local file).
+services:
+  - type: web
+    name: collabpad
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: LOG_LEVEL
+        value: info
+    disk:
+      name: collabpad-data
+      mountPath: /data
+      sizeGB: 1
