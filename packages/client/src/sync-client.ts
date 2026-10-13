@@ -11,6 +11,7 @@ import {
 import {
   ByteCounter,
   CloseCode,
+  chunkOps,
   decodeOpsFrame,
   decodeServerMessage,
   encode,
@@ -265,8 +266,12 @@ export class SyncClient extends Emitter<Events> {
 
   private send(msg: ClientMessage): void {
     if (this.ws?.readyState !== 1) return;
-    if (msg.kind === 'ops') this.ws.send(this.bytes.countSentBinary(encodeOpsFrame(msg.ops)));
-    else this.ws.send(this.bytes.countSent(encode(msg)));
+    if (msg.kind === 'ops') {
+      for (const ops of chunkOps(msg.ops))
+        this.ws.send(this.bytes.countSentBinary(encodeOpsFrame(ops)));
+    } else {
+      this.ws.send(this.bytes.countSent(encode(msg)));
+    }
   }
 
   private setStatus(status: Status): void {

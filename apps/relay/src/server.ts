@@ -6,6 +6,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   CloseCode,
+  chunkOps,
   decodeOpsFrame,
   encode,
   encodeOpsFrame,
@@ -102,8 +103,12 @@ export async function buildRelay(config: RelayConfig): Promise<Relay> {
     const send = (msg: ServerMessage): void => {
       if (socket.readyState !== socket.OPEN) return;
       // Op batches go out as compact binary frames; control messages stay JSON.
-      if (msg.kind === 'ops') socket.send(room.bytes.countSentBinary(encodeOpsFrame(msg.ops)));
-      else socket.send(room.bytes.countSent(encode(msg)));
+      if (msg.kind === 'ops') {
+        for (const ops of chunkOps(msg.ops))
+          socket.send(room.bytes.countSentBinary(encodeOpsFrame(ops)));
+      } else {
+        socket.send(room.bytes.countSent(encode(msg)));
+      }
     };
     const reject = (
       code: 'bad-message' | 'not-hello' | 'rate-limited',

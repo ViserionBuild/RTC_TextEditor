@@ -92,8 +92,10 @@ pnpm bench:fetch && pnpm bench && pnpm bench:charts
 docker compose up --build    # http://localhost:8787, data in a named volume
 ```
 
-**Deploy:** [`fly.toml`](fly.toml) (Fly.io, with a persistent volume) or [`render.yaml`](render.yaml)
-(Render blueprint). Run a single instance: rooms live in memory and SQLite is a local file.
+**Deploy (free):** push to GitHub, then in Render choose **New → Blueprint** and pick this repo.
+[`render.yaml`](render.yaml) builds the Dockerfile on the free plan. Free instances have no
+persistent disk, so documents reset when the instance restarts; [`fly.toml`](fly.toml) or a paid
+Render disk keeps them. Run a single instance: rooms live in memory and SQLite is a local file.
 
 Relay settings come from environment variables: `PORT`, `DB_PATH`, `WEB_DIST`, `CORS_ORIGIN`,
 `MAX_MESSAGE_BYTES`, `RATE_LIMIT_PER_SECOND`, `RATE_LIMIT_BURST`, `REPLICA_LEASE_MS`, `LOG_LEVEL`.

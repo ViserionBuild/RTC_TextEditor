@@ -9,6 +9,8 @@ export {
 export {
   DecodeError,
   FrameTag,
+  MAX_OPS_PER_FRAME,
+  chunkOps,
   decodeOps,
   decodeOpsFrame,
   encodeOps,

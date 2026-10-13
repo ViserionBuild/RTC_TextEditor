@@ -1,15 +1,16 @@
-# Render blueprint: New → Blueprint → point at this repo.
-# One instance with a persistent disk (rooms are in memory, SQLite is a local file).
+# Render blueprint (free plan): Render dashboard → New → Blueprint → pick this repo.
+# Builds the Dockerfile from the default branch and serves the app on https://<name>.onrender.com
+#
+# Free instances have no persistent disk and sleep when idle, so documents reset when the
+# instance restarts. For durable storage use a paid plan and add:
+#   disk: { name: collabpad-data, mountPath: /data, sizeGB: 1 }
+# Run a single instance: rooms live in memory and SQLite is a local file.
 services:
   - type: web
     name: collabpad
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /healthz
     envVars:
       - key: LOG_LEVEL
         value: info
-    disk:
-      name: collabpad-data
-      mountPath: /data
-      sizeGB: 1

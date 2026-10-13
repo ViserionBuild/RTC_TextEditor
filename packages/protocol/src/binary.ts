@@ -254,6 +254,18 @@ export function decodeOps(bytes: Uint8Array): Op[] {
   return ops;
 }
 
+/**
+ * Largest op batch sent in one frame. Receivers reject batches over MAX_OPS, so senders split
+ * anything bigger (a large paste, a long offline session, a catch-up) into several frames.
+ */
+export const MAX_OPS_PER_FRAME = 5_000;
+
+export function chunkOps(ops: readonly Op[], size = MAX_OPS_PER_FRAME): Op[][] {
+  const out: Op[][] = [];
+  for (let i = 0; i < ops.length; i += size) out.push(ops.slice(i, i + size));
+  return out;
+}
+
 /** Binary WebSocket frames: one tag byte, then the payload. Only op batches are binary. */
 export const FrameTag = { Ops: 1 } as const;
 

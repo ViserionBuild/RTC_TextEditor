@@ -144,3 +144,24 @@ describe('relay with three clients', () => {
     await waitFor(() => (stable.at(-1)?.alice ?? 0) === 3, 'stable advanced');
   });
 });
+
+describe('large batches', () => {
+  it('syncs a 25,000-character paste and catches up a client that is far behind', async () => {
+    const { relay, docId } = await setup();
+    const a = client(relay, docId, 'paster');
+    const b = client(relay, docId, 'reader');
+    cleanup.push(() => [a, b].forEach((c) => c.disconnect()));
+    await waitFor(() => a.status === 'online' && b.status === 'online', 'online');
+
+    // More ops than one frame may carry: must be split, not rejected.
+    type(a, 0, 'lorem ipsum '.repeat(2100).slice(0, 25_000));
+    await waitFor(() => b.doc.length === 25_000 && a.pending === 0, 'paste delivered', 15_000);
+
+    // Saw only the first character, then returns: catch-up is also more than one frame.
+    const behind = new Doc('returning');
+    behind.applyRemote(a.doc.opsSince({}).slice(0, 1));
+    const r = client(relay, docId, 'returning', behind);
+    cleanup.push(() => r.disconnect());
+    await waitFor(() => r.doc.text() === a.doc.text(), 'far-behind client caught up', 15_000);
+  });
+});

@@ -1,7 +1,15 @@
 import fc from 'fast-check';
 import { Doc, type Op } from '@collabpad/crdt';
 import { describe, expect, it } from 'vitest';
-import { DecodeError, decodeOps, decodeOpsFrame, encode, encodeOps, encodeOpsFrame } from '../src';
+import {
+  DecodeError,
+  chunkOps,
+  decodeOps,
+  decodeOpsFrame,
+  encode,
+  encodeOps,
+  encodeOpsFrame,
+} from '../src';
 
 const opsFromEdits = (edits: { who: number; del: boolean; pos: number; text: string }[]): Op[] => {
   const docs = ['alice', 'bob', 'ünïcode-replica'].map((r) => new Doc(r));
@@ -101,5 +109,15 @@ describe('binary decoder robustness', () => {
       ),
       { numRuns: 5000 },
     );
+  });
+});
+
+describe('chunkOps', () => {
+  it('splits batches into frames the receiver accepts', () => {
+    const ops = new Doc('a').insertAt(0, 'x'.repeat(12_001));
+    const chunks = chunkOps(ops);
+    expect(chunks.map((c) => c.length)).toEqual([5_000, 5_000, 2_001]);
+    expect(chunks.flatMap((c) => decodeOps(encodeOps(c)))).toEqual(ops);
+    expect(() => decodeOps(encodeOps(ops))).toThrow(DecodeError); // one frame would be rejected
   });
 });
