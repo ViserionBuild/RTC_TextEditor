@@ -37,7 +37,7 @@ const DEFAULTS: NetworkOptions = { minDelay: 1, maxDelay: 20, duplicateRate: 0.2
 /**
  * Star topology: N clients each hold a full Doc, one relay holds only an OpLog.
  *
- * Protocol (mirrors apps/relay):
+ * Protocol (mirrors backend):
  *  - local edit     → client sends OPS to relay (if online)
  *  - relay gets OPS → appends to log, forwards newly accepted ops to every other online client
  *  - (re)connect    → client sends HELLO{vv}; relay answers OPS(missing) + HELLO{relayVV};

@@ -5,8 +5,8 @@ because other replicas may still send operations that refer to it. This document
 when a tombstone can be dropped, why the obvious rule is not enough, and how the implementation
 and tests enforce the real one.
 
-Code: [`StabilityTracker`](../packages/crdt/src/stability.ts) (relay side),
-[`Doc.collect` / `Rga.purge`](../packages/crdt/src/rga.ts) (every replica).
+Code: [`StabilityTracker`](../shared/crdt/src/stability.ts) (relay side),
+[`Doc.collect` / `Rga.purge`](../shared/crdt/src/rga.ts) (every replica).
 
 ## Background: how an insert finds its place (RGA)
 
@@ -41,7 +41,7 @@ clock. A new insert `N` (stamp 4) with origin `O` scans right:
 | result `O N e Y` → shows `ONY` | result `O Y N` → shows `OYN`            |
 
 The replicas diverge permanently. The test
-[`keeps a tombstone whose right neighbour is newer`](../packages/crdt/test/gc.test.ts) builds
+[`keeps a tombstone whose right neighbour is newer`](../shared/crdt/test/gc.test.ts) builds
 exactly this schedule.
 
 ## The rule CollabPad uses
@@ -101,7 +101,7 @@ may hold ops that reference purged elements. The relay refuses it (close code `4
 then:
 
 1. connects under a **new replica id** and bootstraps from the relay's collected snapshot;
-2. replays its unacknowledged edits with [`rebaseUnacked`](../packages/crdt/src/rebase.ts):
+2. replays its unacknowledged edits with [`rebaseUnacked`](../shared/crdt/src/rebase.ts):
    - deletes are re-applied to whatever is still visible;
    - each insert is placed after its nearest left neighbour that still exists.
 
@@ -113,13 +113,13 @@ teardown journal are designed to make this rare. Detecting it on the relay is fu
 
 ## How the tests pin this down
 
-| Guarantee                       | Test                                                                                    |
-| ------------------------------- | --------------------------------------------------------------------------------------- |
-| Neighbour condition             | `gc.test.ts`: the `ONY`/`OYN` schedule; also a fixed example in `gc-property.test.ts`   |
-| Two rounds (no late references) | `gc-property.test.ts`: adversarial delivery, collect before late ops arrive             |
-| End to end over a lossy network | `packages/sim` fuzz: half the runs GC, every run checked against a no-GC oracle         |
-| Relay + clients + persistence   | `apps/relay/test/gc.test.ts`: collection, snapshot bootstrap, eviction, rejoin, restart |
-| Real browsers                   | `e2e/collab.spec.ts`: deleted text collected in three browsers                          |
+| Guarantee                       | Test                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| Neighbour condition             | `gc.test.ts`: the `ONY`/`OYN` schedule; also a fixed example in `gc-property.test.ts` |
+| Two rounds (no late references) | `gc-property.test.ts`: adversarial delivery, collect before late ops arrive           |
+| End to end over a lossy network | `shared/sim` fuzz: half the runs GC, every run checked against a no-GC oracle         |
+| Relay + clients + persistence   | `backend/test/gc.test.ts`: collection, snapshot bootstrap, eviction, rejoin, restart  |
+| Real browsers                   | `e2e/collab.spec.ts`: deleted text collected in three browsers                        |
 
 Each safety condition was checked by **mutation**. Removing the neighbour condition, or
 publishing after round 1 only, makes the suite fail. Random search alone almost never builds the

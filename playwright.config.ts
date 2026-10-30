@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test';
 /**
  * Boots a fresh relay (in-memory DB) and the Vite dev server, then drives real browsers.
  * Locally: PW_CHANNEL=chrome uses the installed Chrome; CI installs Playwright's Chromium.
- * E2E_BASE_URL=https://… runs the same tests against a deployment (e.g. the Docker image).
+ * E2E_BASE_URL=https://… runs the same tests against a deployment (e.g. `pnpm start`).
  */
 const external = process.env.E2E_BASE_URL;
 
@@ -22,14 +22,14 @@ export default defineConfig({
     : [
         {
           command: 'npx tsx src/main.ts',
-          cwd: 'apps/relay',
+          cwd: 'backend',
           url: 'http://localhost:8787/healthz',
           env: { DB_PATH: ':memory:', PORT: '8787', LOG_LEVEL: 'warn' },
           reuseExistingServer: false,
         },
         {
           command: 'npx vite --port 5173 --strictPort',
-          cwd: 'apps/web',
+          cwd: 'frontend',
           url: 'http://localhost:5173',
           reuseExistingServer: false,
         },

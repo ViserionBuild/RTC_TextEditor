@@ -22,7 +22,7 @@ jobs:
       - run: pnpm coverage
 
   e2e:
-    # Browser tests against the production Docker image (relay + built web app).
+    # Browser tests against the production build (relay serving the built web app).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,15 +33,17 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - run: docker build -t collabpad:ci .
-      - run: docker run -d --name collabpad -p 8787:8787 collabpad:ci
+      - run: pnpm --filter @collabpad/frontend build
+      - run: pnpm start > relay.log 2>&1 &
+        env:
+          DB_PATH: ':memory:'
       - name: Wait for the relay
         run: for i in $(seq 1 30); do curl -sf localhost:8787/healthz && exit 0; sleep 1; done; exit 1
       - run: pnpm e2e
         env:
           E2E_BASE_URL: http://localhost:8787
       - if: failure()
-        run: docker logs collabpad
+        run: cat relay.log
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

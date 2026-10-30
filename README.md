@@ -10,7 +10,7 @@ scratch**: no Yjs, no Automerge, no operational transformation server.
 
 - **RGA sequence CRDT from first principles.** Unique `(replica, seq)` ids, Lamport-ordered
   tie-breaks, deletion tombstones, causal buffering and idempotent delivery.
-  [`packages/crdt`](packages/crdt)
+  [`shared/crdt`](shared/crdt)
 - **Proven convergence.** A deterministic network simulator shuffles, delays, duplicates and drops
   messages and takes replicas offline. 10,000 random runs end with identical SHA-256 state hashes.
   Deliberately breaking the CRDT makes the suite fail within a few runs.
@@ -60,17 +60,17 @@ flowchart LR
 
 ## Testing
 
-| Layer             | What it checks                                                                      |
-| ----------------- | ----------------------------------------------------------------------------------- |
-| Unit + scenario   | Concurrent insert/insert and insert/delete at the same position, anchors, snapshots |
-| Differential      | Run-length RGA equals the per-character reference, element for element              |
-| Property / fuzz   | 10k simulated runs (reorder, duplicate, drop, partition, GC) vs. a no-GC oracle     |
-| Adversarial GC    | Collect before late ops arrive; the neighbour-rule trap as a fixed example          |
-| Codec             | Binary round-trips; the untrusted decoder survives 5k random and mutated inputs     |
-| Relay integration | 3 real WebSocket clients, offline merge, relay restart, eviction and rejoin, abuse  |
-| E2E (Playwright)  | 3 browsers, offline + reload, two tabs, GC, against dev **and** the Docker image    |
+| Layer             | What it checks                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| Unit + scenario   | Concurrent insert/insert and insert/delete at the same position, anchors, snapshots  |
+| Differential      | Run-length RGA equals the per-character reference, element for element               |
+| Property / fuzz   | 10k simulated runs (reorder, duplicate, drop, partition, GC) vs. a no-GC oracle      |
+| Adversarial GC    | Collect before late ops arrive; the neighbour-rule trap as a fixed example           |
+| Codec             | Binary round-trips; the untrusted decoder survives 5k random and mutated inputs      |
+| Relay integration | 3 real WebSocket clients, offline merge, relay restart, eviction and rejoin, abuse   |
+| E2E (Playwright)  | 3 browsers, offline + reload, two tabs, GC, against dev **and** the production build |
 
-Every safety rule was checked by mutation: remove it, and the suite fails. 322 unit and
+Every safety rule was checked by mutation: remove it, and the suite fails. 324 unit and
 integration tests plus 6 browser tests run in CI, with 99% line coverage and a nightly
 10,000-run fuzz.
 
@@ -86,34 +86,33 @@ pnpm demo:3clients       # three headless clients, one offline, all converge
 pnpm bench:fetch && pnpm bench && pnpm bench:charts
 ```
 
-**Docker** (one container serves the app and the relay):
+**Production** (one Node process serves the app and the relay):
 
 ```bash
-docker compose up --build    # http://localhost:8787, data in a named volume
+pnpm --filter @collabpad/frontend build && pnpm start   # http://localhost:8787
 ```
 
 **Deploy (free):** push to GitHub, then in Render choose **New → Blueprint** and pick this repo.
-[`render.yaml`](render.yaml) builds the Dockerfile on the free plan. Free instances have no
-persistent disk, so documents reset when the instance restarts; [`fly.toml`](fly.toml) or a paid
-Render disk keeps them. Run a single instance: rooms live in memory and SQLite is a local file.
+[`render.yaml`](render.yaml) builds and runs it with Node on the free plan. Free instances have no
+persistent disk, so documents reset when the instance restarts; a paid Render disk keeps them. Run a single instance: rooms live in memory and SQLite is a local file.
 
 Relay settings come from environment variables: `PORT`, `DB_PATH`, `WEB_DIST`, `CORS_ORIGIN`,
 `MAX_MESSAGE_BYTES`, `RATE_LIMIT_PER_SECOND`, `RATE_LIMIT_BURST`, `REPLICA_LEASE_MS`, `LOG_LEVEL`.
 
 ## Repository layout
 
-| Path                                     | What                                                                              |
-| ---------------------------------------- | --------------------------------------------------------------------------------- |
-| [`packages/crdt`](packages/crdt)         | RGA, version vectors, causal delivery, GC, stability tracker, rebase              |
-| [`packages/protocol`](packages/protocol) | Message types, zod validation (server-only entry), binary op codec                |
-| [`packages/client`](packages/client)     | `SyncClient`: handshake, reconnect with backoff, acks, presence, rejoin           |
-| [`packages/sim`](packages/sim)           | Deterministic network simulator and convergence fuzzer                            |
-| [`apps/relay`](apps/relay)               | Fastify + WebSocket relay, SQLite persistence, REST, static web app               |
-| [`apps/web`](apps/web)                   | React + CodeMirror editor, offline storage, Internals panel                       |
-| [`bench`](bench)                         | Benchmarks on the automerge-paper trace, chart generation                         |
-| [`e2e`](e2e)                             | Playwright tests                                                                  |
-| [`docs`](docs)                           | [Tombstone GC argument](docs/TOMBSTONES.md), [performance report](docs/REPORT.md) |
-| [`PRD`](PRD)                             | Original brief, requirements analysis, implementation plan                        |
+| Path                                 | What                                                                              |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| [`shared/crdt`](shared/crdt)         | RGA, version vectors, causal delivery, GC, stability tracker, rebase              |
+| [`shared/protocol`](shared/protocol) | Message types, zod validation (server-only entry), binary op codec                |
+| [`shared/client`](shared/client)     | `SyncClient`: handshake, reconnect with backoff, acks, presence, rejoin           |
+| [`shared/sim`](shared/sim)           | Deterministic network simulator and convergence fuzzer                            |
+| [`backend`](backend)                 | Fastify + WebSocket relay, SQLite persistence, REST, static web app               |
+| [`frontend`](frontend)               | React + CodeMirror editor, offline storage, Internals panel                       |
+| [`bench`](bench)                     | Benchmarks on the automerge-paper trace, chart generation                         |
+| [`e2e`](e2e)                         | Playwright tests                                                                  |
+| [`docs`](docs)                       | [Tombstone GC argument](docs/TOMBSTONES.md), [performance report](docs/REPORT.md) |
+| [`PRD`](PRD)                         | Original brief, requirements analysis, implementation plan                        |
 
 ## Design decisions
 

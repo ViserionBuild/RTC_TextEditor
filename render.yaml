@@ -1,16 +1,21 @@
 # Render blueprint (free plan): Render dashboard → New → Blueprint → pick this repo.
-# Builds the Dockerfile from the default branch and serves the app on https://<name>.onrender.com
+# Builds the web app with Node and serves it from the relay on https://<name>.onrender.com
 #
 # Free instances have no persistent disk and sleep when idle, so documents reset when the
-# instance restarts. For durable storage use a paid plan and add:
+# instance restarts. For durable storage use a paid plan, add
 #   disk: { name: collabpad-data, mountPath: /data, sizeGB: 1 }
+# and set DB_PATH=/data/collabpad.sqlite.
 # Run a single instance: rooms live in memory and SQLite is a local file.
 services:
   - type: web
     name: collabpad
-    runtime: docker
+    runtime: node
     plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @collabpad/frontend build
+    startCommand: pnpm start
     healthCheckPath: /healthz
     envVars:
+      - key: NODE_VERSION
+        value: '24'
       - key: LOG_LEVEL
         value: info

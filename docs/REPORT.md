@@ -67,7 +67,7 @@ therefore favours the old version.
 How the binary format gets small:
 
 - Op batches go over the WebSocket as binary frames
-  ([`binary.ts`](../packages/protocol/src/binary.ts)); control messages stay JSON.
+  ([`binary.ts`](../shared/protocol/src/binary.ts)); control messages stay JSON.
 - Replica ids are written once per message.
 - Seqs and stamps are varints.
 - A run of typing is one group: its origin is implied ("after the previous character"), and each
