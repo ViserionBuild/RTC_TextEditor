@@ -6,7 +6,7 @@ Real-time collaborative text editor (Google-Docs-style) built on a from-scratch 
 CRDT, with offline editing, provably safe tombstone GC and a binary sync protocol.
 
 **Stack:** TypeScript, React, CodeMirror 6, Node.js, Fastify, WebSockets, SQLite, IndexedDB,
-Vitest, fast-check, Playwright, Docker, GitHub Actions.
+Vitest, fast-check, Playwright, GitHub Actions.
 
 ## Bullets (pick 3–4)
 
@@ -46,9 +46,9 @@ Vitest, fast-check, Playwright, Docker, GitHub Actions.
    wait for its lock, and journal synchronously on `pagehide`.
 4. **Testing a distributed system without flakes.** I used a seeded simulator with failures that
    shrink to minimal cases, a differential oracle for the optimized data structure, and E2E tests
-   that run in CI against the production Docker image.
+   that run in CI against the production build.
 
 ## Links to add
 
 - GitHub repo: <https://github.com/ViserionBuild/RTC_TextEditor>
-- Live demo: deploy with `fly.toml` or `render.yaml` and put the URL here and in the README.
+- Live demo: deploy with `render.yaml` and put the URL here and in the README.
